@@ -22,7 +22,7 @@ import { ExportModule } from './export/export.module';
         password: configService.get<string>('POSTGRES_PASSWORD'),
         database: configService.get<string>('POSTGRES_DB'),
         autoLoadEntities: true,
-        synchronize: true,
+        synchronize: configService.get<string>('NODE_ENV') !== 'production',
       }),
     }),
 
@@ -40,4 +40,4 @@ import { ExportModule } from './export/export.module';
     ExportModule,
   ],
 })
-export class AppModule {}
+export class AppModule { }
