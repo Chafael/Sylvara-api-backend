@@ -1,35 +1,51 @@
 import {
     IsString,
     IsNotEmpty,
-    IsEnum,
-    IsOptional,
     IsNumber,
     IsPositive,
     IsInt,
+    IsOptional,
+    IsEnum,
+    IsDateString,
 } from 'class-validator';
-import { ProjectStatus } from '../../../common/constants/project-status.enum';
+
+export enum PlotStatus {
+    ACTIVE = 'active',
+    INACTIVE = 'inactive',
+}
 
 export class CreateProjectDto {
     @IsString()
     @IsNotEmpty()
-    project_name: string;
-
-    @IsEnum(ProjectStatus)
-    @IsOptional()
-    project_status?: ProjectStatus;
-
-    @IsNumber()
-    @IsPositive()
-    total_area: number;
+    name: string;
 
     @IsString()
     @IsNotEmpty()
-    unit_name: string;
-
-    @IsInt()
-    user_id: number;
+    image: string;
 
     @IsString()
     @IsOptional()
     description?: string;
+
+    @IsEnum(PlotStatus)
+    @IsOptional()
+    status?: PlotStatus;
+
+    @IsNumber()
+    @IsPositive()
+    totalArea: number;
+
+    @IsInt()
+    unitId: number;
+
+    @IsInt()
+    userId: number;
+
+    @IsDateString()
+    @IsOptional()
+    startDate?: string;
+
+    @IsDateString()
+    @IsOptional()
+    endDate?: string;
 }
