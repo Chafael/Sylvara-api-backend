@@ -1,5 +1,4 @@
 import {
-    BadRequestException,
     ConflictException,
     Injectable,
     UnauthorizedException,
@@ -12,6 +11,7 @@ import * as bcrypt from 'bcrypt';
 import { User } from './entities/user.entity';
 import { RegisterUserDto } from './dto/register-user.dto';
 import { LoginUserDto } from './dto/login-user.dto';
+import { AuthResponse, AuthUser } from './dto/auth-response.dto';
 
 @Injectable()
 export class AuthService {
@@ -21,53 +21,114 @@ export class AuthService {
         private readonly jwtService: JwtService,
     ) { }
 
-    // ───────────────────── REGISTER ─────────────────────
-    async register(dto: RegisterUserDto): Promise<Omit<User, 'user_password'>> {
+    // convierte la entidad de BD al objeto user del contrato OpenAPI
+    private toAuthUser(user: User): AuthUser {
+        return {
+            id: user.user_id,
+            name: user.user_name,
+            lastname: user.user_lastname,
+            email: user.user_email,
+            role: user.user_role ?? 'USER',
+        };
+    }
+
+    private signTokens(user: User) {
+        const payload = { sub: user.user_id, email: user.user_email, role: user.user_role };
+        return {
+            accessToken: this.jwtService.sign(payload, { expiresIn: '7d' }),
+            refreshToken: this.jwtService.sign(payload, { expiresIn: '30d' }),
+        };
+    }
+
+    async register(dto: RegisterUserDto): Promise<AuthResponse> {
         const exists = await this.userRepository.findOne({
-            where: { user_email: dto.user_email },
+            where: { user_email: dto.email },
         });
 
         if (exists) {
             throw new ConflictException('El correo electrónico ya está registrado.');
         }
 
-        const hashedPassword = await bcrypt.hash(dto.user_password, 10);
+        const hashedPassword = await bcrypt.hash(dto.password, 10);
 
+        // mapeo DTO (OpenAPI) a columnas de PostgreSQL
         const user = this.userRepository.create({
-            user_name: dto.user_name,
-            user_lastname: dto.user_lastname,
-            user_birthday: new Date(dto.user_birthday),
-            user_email: dto.user_email,
+            user_name: dto.name,
+            user_lastname: dto.lastname,
+            user_birthday: new Date(dto.birthday),
+            user_email: dto.email,
             user_password: hashedPassword,
         });
 
         const saved = await this.userRepository.save(user);
+        const { accessToken, refreshToken } = this.signTokens(saved);
 
-        // Exclude password from the returned object
-        const { user_password: _pw, ...result } = saved as User & { user_password?: string };
-        return result;
+        return { accessToken, refreshToken, user: this.toAuthUser(saved) };
     }
 
-    // ───────────────────── LOGIN ─────────────────────
-    async login(dto: LoginUserDto): Promise<{ access_token: string }> {
+    async login(dto: LoginUserDto): Promise<AuthResponse> {
+        // incluir password porque select: false lo excluye por defecto
         const user = await this.userRepository.findOne({
-            where: { user_email: dto.user_email },
-            select: ['user_id', 'user_email', 'user_password'],
+            where: { user_email: dto.email },
+            select: ['user_id', 'user_name', 'user_lastname', 'user_email', 'user_password', 'user_role'],
         });
 
         if (!user) {
             throw new UnauthorizedException('Credenciales inválidas.');
         }
 
-        const isValid = await bcrypt.compare(dto.user_password, user.user_password);
-
+        const isValid = await bcrypt.compare(dto.password, user.user_password);
         if (!isValid) {
             throw new UnauthorizedException('Credenciales inválidas.');
         }
 
-        const payload = { sub: user.user_id, email: user.user_email };
-        const access_token = this.jwtService.sign(payload);
+        const { accessToken, refreshToken } = this.signTokens(user);
 
-        return { access_token };
+        return { accessToken, refreshToken, user: this.toAuthUser(user) };
+    }
+
+    async refresh(refreshToken: string): Promise<AuthResponse> {
+        let payload: { sub: number; email: string; role: string };
+
+        try {
+            payload = this.jwtService.verify(refreshToken);
+        } catch {
+            throw new UnauthorizedException('La sesión ha expirado. Por favor, inicia sesión nuevamente.');
+        }
+
+        const user = await this.userRepository.findOne({
+            where: { user_id: payload.sub },
+        });
+
+        if (!user) {
+            throw new UnauthorizedException('La sesión ha expirado. Por favor, inicia sesión nuevamente.');
+        }
+
+        const tokens = this.signTokens(user);
+
+        return { ...tokens, user: this.toAuthUser(user) };
+    }
+
+    async logout(refreshToken: string): Promise<{ message: string }> {
+        // verifica que el token sea válido antes de aceptar el logout
+        try {
+            this.jwtService.verify(refreshToken);
+        } catch {
+            throw new UnauthorizedException('No autorizado. Debes iniciar sesión para realizar esta acción.');
+        }
+
+        return { message: 'Sesión cerrada exitosamente' };
+    }
+
+    async getMe(userId: number): Promise<AuthUser> {
+        const user = await this.userRepository.findOne({
+            where: { user_id: userId },
+        });
+
+        if (!user) {
+            throw new UnauthorizedException('No autorizado. El token es inválido o ha expirado.');
+        }
+
+        return this.toAuthUser(user);
     }
 }
