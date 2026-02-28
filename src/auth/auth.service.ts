@@ -9,6 +9,7 @@ import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 
 import { User } from './entities/user.entity';
+import { RefreshToken } from './entities/refresh-token.entity';
 import { RegisterUserDto } from './dto/register-user.dto';
 import { LoginUserDto } from './dto/login-user.dto';
 import { AuthResponse, AuthUser } from './dto/auth-response.dto';
@@ -18,6 +19,10 @@ export class AuthService {
     constructor(
         @InjectRepository(User)
         private readonly userRepository: Repository<User>,
+
+        @InjectRepository(RefreshToken)
+        private readonly refreshTokenRepository: Repository<RefreshToken>,
+
         private readonly jwtService: JwtService,
     ) { }
 
@@ -38,6 +43,20 @@ export class AuthService {
             accessToken: this.jwtService.sign(payload, { expiresIn: '7d' }),
             refreshToken: this.jwtService.sign(payload, { expiresIn: '30d' }),
         };
+    }
+
+    /** Guarda un refresh token en la tabla refresh_tokens */
+    private async saveRefreshToken(userId: number, token: string): Promise<void> {
+        const expiresAt = new Date();
+        expiresAt.setDate(expiresAt.getDate() + 30); // 30 días
+
+        const record = this.refreshTokenRepository.create({
+            user_id: userId,
+            token,
+            expires_at: expiresAt,
+        });
+
+        await this.refreshTokenRepository.save(record);
     }
 
     async register(dto: RegisterUserDto): Promise<AuthResponse> {
@@ -63,6 +82,9 @@ export class AuthService {
         const saved = await this.userRepository.save(user);
         const { accessToken, refreshToken } = this.signTokens(saved);
 
+        // persistir el refresh token en la BD
+        await this.saveRefreshToken(saved.user_id, refreshToken);
+
         return { accessToken, refreshToken, user: this.toAuthUser(saved) };
     }
 
@@ -84,6 +106,9 @@ export class AuthService {
 
         const { accessToken, refreshToken } = this.signTokens(user);
 
+        // persistir el refresh token en la BD
+        await this.saveRefreshToken(user.user_id, refreshToken);
+
         return { accessToken, refreshToken, user: this.toAuthUser(user) };
     }
 
@@ -96,6 +121,15 @@ export class AuthService {
             throw new UnauthorizedException('La sesión ha expirado. Por favor, inicia sesión nuevamente.');
         }
 
+        // verificar que el token existe en la BD (no fue invalidado)
+        const tokenRecord = await this.refreshTokenRepository.findOne({
+            where: { token: refreshToken, user_id: payload.sub },
+        });
+
+        if (!tokenRecord) {
+            throw new UnauthorizedException('La sesión ha expirado. Por favor, inicia sesión nuevamente.');
+        }
+
         const user = await this.userRepository.findOne({
             where: { user_id: payload.sub },
         });
@@ -104,16 +138,30 @@ export class AuthService {
             throw new UnauthorizedException('La sesión ha expirado. Por favor, inicia sesión nuevamente.');
         }
 
+        // eliminar el token viejo y emitir uno nuevo (rotación)
+        await this.refreshTokenRepository.delete({ token_id: tokenRecord.token_id });
         const tokens = this.signTokens(user);
+        await this.saveRefreshToken(user.user_id, tokens.refreshToken);
 
         return { ...tokens, user: this.toAuthUser(user) };
     }
 
     async logout(refreshToken: string): Promise<{ message: string }> {
-        // verifica que el token sea válido antes de aceptar el logout
+        let payload: { sub: number };
+
         try {
-            this.jwtService.verify(refreshToken);
+            payload = this.jwtService.verify(refreshToken);
         } catch {
+            throw new UnauthorizedException('No autorizado. Debes iniciar sesión para realizar esta acción.');
+        }
+
+        // eliminar el registro de la tabla refresh_tokens
+        const result = await this.refreshTokenRepository.delete({
+            token: refreshToken,
+            user_id: payload.sub,
+        });
+
+        if (!result.affected || result.affected === 0) {
             throw new UnauthorizedException('No autorizado. Debes iniciar sesión para realizar esta acción.');
         }
 
