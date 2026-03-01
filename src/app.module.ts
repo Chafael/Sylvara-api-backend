@@ -5,6 +5,7 @@ import { MongooseModule } from '@nestjs/mongoose';
 import { AuthModule } from './auth/auth.module';
 import { BioCoreModule } from './bio-core/bio-core.module';
 import { ExportModule } from './export/export.module';
+import { BenchmarkingModule } from './benchmarking/benchmarking.module';
 
 @Module({
   imports: [
@@ -38,6 +39,7 @@ import { ExportModule } from './export/export.module';
     AuthModule,
     BioCoreModule,
     ExportModule,
+    BenchmarkingModule,
   ],
 })
 export class AppModule { }
