@@ -8,5 +8,6 @@ import { ProjectsController } from './projects/projects.controller';
     imports: [MongooseModule.forFeature([{ name: SamplingPlot.name, schema: SamplingPlotSchema }])],
     controllers: [ProjectsController],
     providers: [ProjectsService],
+    exports: [ProjectsService],
 })
 export class BioCoreModule { }
