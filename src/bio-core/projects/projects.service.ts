@@ -19,25 +19,25 @@ export class ProjectsService {
         });
     }
 
-    async create(dto: CreateProjectDto): Promise<ProjectResponseDto> {
-        const created = new this.plotModel(dto);
+    async create(dto: CreateProjectDto, userId: number): Promise<ProjectResponseDto> {
+        const created = new this.plotModel({ ...dto, userId });
         const saved = await created.save();
         return this.toResponse(saved);
     }
 
-    async findAll(): Promise<ProjectResponseDto[]> {
-        const plots = await this.plotModel.find().exec();
+    async findAll(userId: number): Promise<ProjectResponseDto[]> {
+        const plots = await this.plotModel.find({ userId }).exec();
         return plots.map(p => this.toResponse(p));
     }
 
-    async findOne(id: string): Promise<ProjectResponseDto> {
-        const plot = await this.plotModel.findById(id).exec();
+    async findOne(id: string, userId: number): Promise<ProjectResponseDto> {
+        const plot = await this.plotModel.findOne({ _id: id, userId }).exec();
         if (!plot) throw new NotFoundException(`Parcela con id ${id} no encontrada.`);
         return this.toResponse(plot);
     }
 
-    async remove(id: string): Promise<{ message: string }> {
-        const result = await this.plotModel.findByIdAndDelete(id).exec();
+    async remove(id: string, userId: number): Promise<{ message: string }> {
+        const result = await this.plotModel.findOneAndDelete({ _id: id, userId }).exec();
         if (!result) throw new NotFoundException(`Parcela con id ${id} no encontrada.`);
         return { message: 'Parcela eliminada exitosamente.' };
     }
