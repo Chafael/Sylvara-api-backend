@@ -1,12 +1,12 @@
 import { Module } from '@nestjs/common';
-import { TypeOrmModule } from '@nestjs/typeorm';
-import { DailyMetric } from './entities/daily-metric.entity';
 import { BenchmarkingController } from './benchmarking.controller';
-import { BenchmarkingService } from './benchmarking.service';
+import { SnapshotService } from './services/snapshot.service';
+import { CsvService } from './services/csv.service';
+import { ExportModule } from '../export/export.module';
 
 @Module({
-    imports: [TypeOrmModule.forFeature([DailyMetric])],
+    imports: [ExportModule], // trae BigQueryService
     controllers: [BenchmarkingController],
-    providers: [BenchmarkingService],
+    providers: [SnapshotService, CsvService],
 })
-export class BenchmarkingModule { }
+export class BenchmarkingModule {}
