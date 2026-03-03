@@ -46,17 +46,14 @@ export class BenchmarkingController {
             req.user.user_id,
         );
 
-        const rows = await this.snapshotService.getSnapshot();
+        const rawRows = await this.snapshotService.getSnapshot();
+        const rows = this.snapshotService.formatForBigQuery(rawRows);
 
         let inserted = 0;
         for (const row of rows) {
-            await this.bigQueryService.insertDailyQueryMetric(
-                googleToken,
-                row as unknown as Record<string, unknown>,
-            );
+            await this.bigQueryService.insertDailyQueryMetric(googleToken, row);
             inserted++;
-        }
-
+}
         return {
             message: 'Snapshot enviado a BigQuery exitosamente.',
             rowsInserted: inserted,

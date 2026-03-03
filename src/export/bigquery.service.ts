@@ -63,10 +63,11 @@ export class BigQueryService {
 
         try {
             await table.insert(row);
-        } catch (error) {
-            throw new InternalServerErrorException(
-                `BigQuery insert failed: ${(error as Error).message}`,
-            );
-        }
+            } catch (error) {
+                console.error('BigQuery insert error:', JSON.stringify(error, null, 2));
+                throw new InternalServerErrorException(
+                    `BigQuery insert failed: ${JSON.stringify((error as any).errors ?? (error as Error).message)}`,
+                );
+            }
     }
 }

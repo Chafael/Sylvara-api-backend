@@ -59,17 +59,26 @@ export class AuthController {
 
     /** Redirige al usuario a Google para autorizar BigQuery */
     @Get('google')
-    @UseGuards(JwtAuthGuard)
     googleRedirect(
-        @Request() req: { user: { user_id: number } },
+        @Query('token') token: string,
         @Res() res: Response,
     ) {
-        const url = this.googleOAuthService.getAuthUrl(req.user.user_id);
+        if (!token) {
+            res.status(401).json({ message: 'Se requiere el query param ?token=TU_JWT' });
+            return;
+        }
+
+        // decodificar el JWT manualmente para obtener el userId
+        const payload = JSON.parse(
+            Buffer.from(token.split('.')[1], 'base64').toString(),
+        );
+
+        const url = this.googleOAuthService.getAuthUrl(payload.sub);
         res.redirect(url);
     }
 
     /** Callback de Google: intercambia code por tokens */
-    @Get('google/callback')
+    @Get('callback')
     async googleCallback(
         @Query('code') code: string,
         @Query('state') state: string,
