@@ -1,4 +1,6 @@
 import { Injectable } from '@nestjs/common';
+import * as https from 'https';
+import * as http from 'http';
 import PDFDocument = require('pdfkit');
 import { ProjectResponseDto } from '../../bio-core/projects/dto/project-response.dto';
 import { ProjectsService } from '../../bio-core/projects/projects.service';
@@ -9,10 +11,40 @@ export class PdfService {
 
     async generatePlotReport(plotId: string, userId: number): Promise<Buffer> {
         const plot = await this.projectsService.findOne(plotId, userId);
-        return this.buildPdf(plot);
+
+        // Intentamos descargar la imagen; si falla simplemente no la incluimos
+        const imageBuffer = plot.image ? await this.fetchImage(plot.image).catch(() => null) : null;
+
+        return this.buildPdf(plot, imageBuffer);
     }
 
-    private buildPdf(plot: ProjectResponseDto): Promise<Buffer> {
+    // Descarga una URL (http o https) y devuelve su contenido como Buffer
+    private fetchImage(url: string): Promise<Buffer> {
+        return new Promise((resolve, reject) => {
+            const client = url.startsWith('https') ? https : http;
+            client.get(url, (res) => {
+                if (res.statusCode !== 200) {
+                    reject(new Error(`Status ${res.statusCode}`));
+                    return;
+                }
+                const chunks: Buffer[] = [];
+                res.on('data', (chunk: Buffer) => chunks.push(chunk));
+                res.on('end', () => resolve(Buffer.concat(chunks)));
+                res.on('error', reject);
+            }).on('error', reject);
+        });
+    }
+
+    private formatDate(value: Date | string | undefined): string {
+        if (!value) return '—';
+        return new Intl.DateTimeFormat('es-MX', {
+            day: 'numeric',
+            month: 'long',
+            year: 'numeric',
+        }).format(new Date(value));
+    }
+
+    private buildPdf(plot: ProjectResponseDto, imageBuffer: Buffer | null): Promise<Buffer> {
         return new Promise((resolve, reject) => {
             const doc = new PDFDocument({ margin: 50, size: 'A4' });
             const chunks: Buffer[] = [];
@@ -29,14 +61,22 @@ export class PdfService {
                 .text(plot.name, { align: 'center' })
                 .moveDown(1);
 
+            // Imagen principal de la parcela (si está disponible)
+            if (imageBuffer) {
+                doc.image(imageBuffer, {
+                    fit: [500, 200],
+                    align: 'center',
+                }).moveDown(1);
+            }
+
             // Datos generales de la parcela
             doc.fontSize(12).font('Helvetica-Bold').text('Información general').moveDown(0.3);
             doc.font('Helvetica').fontSize(11);
             if (plot.description) doc.text(`Descripción: ${plot.description}`);
             doc.text(`Área total: ${plot.totalArea} ha`);
             doc.text(`Estado: ${plot.status ?? 'activo'}`);
-            if (plot.startDate) doc.text(`Inicio: ${new Date(plot.startDate).toLocaleDateString('es-MX')}`);
-            if (plot.endDate) doc.text(`Fin:    ${new Date(plot.endDate).toLocaleDateString('es-MX')}`);
+            if (plot.startDate) doc.text(`Inicio: ${this.formatDate(plot.startDate)}`);
+            if (plot.endDate) doc.text(`Fin:    ${this.formatDate(plot.endDate)}`);
             doc.moveDown(1);
 
             // Índices globales del muestreo
@@ -90,7 +130,7 @@ export class PdfService {
             }
 
             doc.moveDown(1).fontSize(9).fillColor('grey')
-                .text(`Generado por Sylvara — ${new Date().toLocaleString('es-MX')}`, { align: 'center' });
+                .text(`Generado por Sylvara — ${this.formatDate(new Date())}`, { align: 'center' });
 
             doc.end();
         });
