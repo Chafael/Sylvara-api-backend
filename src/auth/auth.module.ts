@@ -6,13 +6,15 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
+import { GoogleOAuthService } from 'src/benchmarking/services/google-oauth.service';
 import { User } from './entities/user.entity';
 import { RefreshToken } from './entities/refresh-token.entity';
+import { GoogleToken } from 'src/benchmarking/entities/google-token.entity';
 import { JwtStrategy } from './strategies/jwt.strategy';
 
 @Module({
     imports: [
-        TypeOrmModule.forFeature([User, RefreshToken]),
+        TypeOrmModule.forFeature([User, RefreshToken, GoogleToken]),
         PassportModule.register({ defaultStrategy: 'jwt' }),
         JwtModule.registerAsync({
             imports: [ConfigModule],
@@ -24,7 +26,7 @@ import { JwtStrategy } from './strategies/jwt.strategy';
         }),
     ],
     controllers: [AuthController],
-    providers: [AuthService, JwtStrategy],
-    exports: [JwtStrategy, PassportModule, JwtModule],
+    providers: [AuthService, GoogleOAuthService, JwtStrategy],
+    exports: [JwtStrategy, PassportModule, JwtModule, GoogleOAuthService],
 })
-export class AuthModule { }
+export class AuthModule {}

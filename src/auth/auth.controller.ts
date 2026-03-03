@@ -5,18 +5,25 @@ import {
     HttpCode,
     HttpStatus,
     Post,
+    Query,
     Request,
+    Res,
     UseGuards,
 } from '@nestjs/common';
+import type { Response } from 'express';
 import { AuthService } from './auth.service';
 import { RegisterUserDto } from './dto/register-user.dto';
 import { LoginUserDto } from './dto/login-user.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
+import { GoogleOAuthService } from 'src/benchmarking/services/google-oauth.service';
 
 @Controller('auth')
 export class AuthController {
-    constructor(private readonly authService: AuthService) { }
+    constructor(
+        private readonly authService: AuthService,
+        private readonly googleOAuthService: GoogleOAuthService,
+    ) {}
 
     @Post('register')
     register(@Body() dto: RegisterUserDto) {
@@ -35,7 +42,6 @@ export class AuthController {
         return this.authService.refresh(dto.refreshToken);
     }
 
-    // requiere Bearer token válido para cerrar sesión
     @Post('logout')
     @HttpCode(HttpStatus.OK)
     @UseGuards(JwtAuthGuard)
@@ -43,10 +49,53 @@ export class AuthController {
         return this.authService.logout(dto.refreshToken);
     }
 
-    // devuelve los datos del usuario autenticado actualmente
     @Get('me')
     @UseGuards(JwtAuthGuard)
     getMe(@Request() req: { user: { user_id: number } }) {
         return this.authService.getMe(req.user.user_id);
+    }
+
+    // ─── Google OAuth ────────────────────────────────────────
+
+    /** Redirige al usuario a Google para autorizar BigQuery */
+    @Get('google')
+    googleRedirect(
+        @Query('token') token: string,
+        @Res() res: Response,
+    ) {
+        if (!token) {
+            res.status(401).json({ message: 'Se requiere el query param ?token=TU_JWT' });
+            return;
+        }
+
+        // decodificar el JWT manualmente para obtener el userId
+        const payload = JSON.parse(
+            Buffer.from(token.split('.')[1], 'base64').toString(),
+        );
+
+        const url = this.googleOAuthService.getAuthUrl(payload.sub);
+        res.redirect(url);
+    }
+
+    /** Callback de Google: intercambia code por tokens */
+    @Get('callback')
+    async googleCallback(
+        @Query('code') code: string,
+        @Query('state') state: string,
+        @Res() res: Response,
+    ) {
+        const userId = parseInt(state, 10);
+        await this.googleOAuthService.handleCallback(code, userId);
+
+        // redirigir al frontend con éxito
+        res.redirect('http://localhost:3001/benchmarking?google=connected');
+    }
+
+    /** Verifica si el usuario tiene Google conectado */
+    @Get('google/status')
+    @UseGuards(JwtAuthGuard)
+    async googleStatus(@Request() req: { user: { user_id: number } }) {
+        const connected = await this.googleOAuthService.isConnected(req.user.user_id);
+        return { connected };
     }
 }
