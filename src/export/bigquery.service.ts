@@ -34,12 +34,12 @@ export class BigQueryService {
         const query = `
       SELECT *
       FROM \`${this.projectId}.${this.datasetId}.${this.tableId}\`
-      ORDER BY date DESC
+      ORDER BY snapshot_date DESC
       LIMIT 1000
     `;
 
         try {
-            const [rows] = await bigquery.query({ query, location: 'US' });
+            const [rows] = await bigquery.query({ query});
             return rows as Record<string, unknown>[];
         } catch (error) {
             throw new InternalServerErrorException(
