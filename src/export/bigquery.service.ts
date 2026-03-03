@@ -34,12 +34,12 @@ export class BigQueryService {
         const query = `
       SELECT *
       FROM \`${this.projectId}.${this.datasetId}.${this.tableId}\`
-      ORDER BY date DESC
+      ORDER BY snapshot_date DESC
       LIMIT 1000
     `;
 
         try {
-            const [rows] = await bigquery.query({ query, location: 'US' });
+            const [rows] = await bigquery.query({ query});
             return rows as Record<string, unknown>[];
         } catch (error) {
             throw new InternalServerErrorException(
@@ -63,10 +63,11 @@ export class BigQueryService {
 
         try {
             await table.insert(row);
-        } catch (error) {
-            throw new InternalServerErrorException(
-                `BigQuery insert failed: ${(error as Error).message}`,
-            );
-        }
+            } catch (error) {
+                console.error('BigQuery insert error:', JSON.stringify(error, null, 2));
+                throw new InternalServerErrorException(
+                    `BigQuery insert failed: ${JSON.stringify((error as any).errors ?? (error as Error).message)}`,
+                );
+            }
     }
 }
