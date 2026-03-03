@@ -15,11 +15,6 @@ import { PdfService } from './services/pdf.service';
 export class ExportController {
     constructor(private readonly pdfService: PdfService) { }
 
-    /**
-     * GET /export/pdf/:id
-     * Genera y descarga el reporte PDF de una parcela de muestreo.
-     * Solo el dueño de la parcela puede exportarla (validado via userId del JWT).
-     */
     @Get('pdf/:id')
     async downloadPdf(
         @Param('id') plotId: string,

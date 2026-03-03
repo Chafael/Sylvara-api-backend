@@ -20,6 +20,7 @@ export class ProjectsService {
     }
 
     async create(dto: CreateProjectDto, userId: number): Promise<ProjectResponseDto> {
+        // El userId siempre viene del token, nunca del body
         const created = new this.plotModel({ ...dto, userId });
         const saved = await created.save();
         return this.toResponse(saved);

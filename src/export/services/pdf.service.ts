@@ -7,19 +7,11 @@ import { ProjectsService } from '../../bio-core/projects/projects.service';
 export class PdfService {
     constructor(private readonly projectsService: ProjectsService) { }
 
-    /**
-     * Obtiene la parcela del investigador y genera su reporte PDF.
-     * La validación de propiedad la realiza ProjectsService (findOne filtra por userId).
-     * @param plotId   ID de MongoDB de la parcela.
-     * @param userId   ID del investigador autenticado (extraído del JWT).
-     * @returns        Buffer con el contenido binario del PDF.
-     */
     async generatePlotReport(plotId: string, userId: number): Promise<Buffer> {
         const plot = await this.projectsService.findOne(plotId, userId);
         return this.buildPdf(plot);
     }
 
-    // ── Construcción visual del documento ────────────────────────────────────
     private buildPdf(plot: ProjectResponseDto): Promise<Buffer> {
         return new Promise((resolve, reject) => {
             const doc = new PDFDocument({ margin: 50, size: 'A4' });
@@ -29,20 +21,15 @@ export class PdfService {
             doc.on('end', () => resolve(Buffer.concat(chunks)));
             doc.on('error', reject);
 
-            // ── Encabezado ──────────────────────────────────────────────────
-            doc
-                .fontSize(20)
-                .font('Helvetica-Bold')
+            // Encabezado
+            doc.fontSize(20).font('Helvetica-Bold')
                 .text('Reporte de Biodiversidad', { align: 'center' })
                 .moveDown(0.5);
-
-            doc
-                .fontSize(14)
-                .font('Helvetica')
+            doc.fontSize(14).font('Helvetica')
                 .text(plot.name, { align: 'center' })
                 .moveDown(1);
 
-            // ── Información general ──────────────────────────────────────────
+            // Datos generales de la parcela
             doc.fontSize(12).font('Helvetica-Bold').text('Información general').moveDown(0.3);
             doc.font('Helvetica').fontSize(11);
             if (plot.description) doc.text(`Descripción: ${plot.description}`);
@@ -52,7 +39,7 @@ export class PdfService {
             if (plot.endDate) doc.text(`Fin:    ${new Date(plot.endDate).toLocaleDateString('es-MX')}`);
             doc.moveDown(1);
 
-            // ── Métricas globales ────────────────────────────────────────────
+            // Índices globales del muestreo
             if (plot.globalMetrics) {
                 doc.fontSize(12).font('Helvetica-Bold').text('Métricas globales').moveDown(0.3);
                 doc.fontSize(11).font('Helvetica');
@@ -72,7 +59,7 @@ export class PdfService {
                 doc.moveDown(1);
             }
 
-            // ── Detalle por zona ─────────────────────────────────────────────
+            // Una sección por cada zona registrada
             if (plot.zonesDetails?.length) {
                 doc.fontSize(12).font('Helvetica-Bold').text('Detalle por zona').moveDown(0.5);
 
@@ -102,15 +89,8 @@ export class PdfService {
                 }
             }
 
-            // ── Pie de página ────────────────────────────────────────────────
-            doc
-                .moveDown(1)
-                .fontSize(9)
-                .fillColor('grey')
-                .text(
-                    `Generado por Sylvara — ${new Date().toLocaleString('es-MX')}`,
-                    { align: 'center' },
-                );
+            doc.moveDown(1).fontSize(9).fillColor('grey')
+                .text(`Generado por Sylvara — ${new Date().toLocaleString('es-MX')}`, { align: 'center' });
 
             doc.end();
         });

@@ -1,7 +1,5 @@
 import { Expose, Transform, Type } from 'class-transformer';
 
-// ─── Clases de salida anidadas ────────────────────────────────────────────────
-
 export class DiversityIndicesResponse {
     @Expose() shannon: number;
     @Expose() simpson: number;
@@ -15,13 +13,8 @@ export class GlobalCountsResponse {
 }
 
 export class GlobalMetricsResponse {
-    @Expose()
-    @Type(() => DiversityIndicesResponse)
-    indices: DiversityIndicesResponse;
-
-    @Expose()
-    @Type(() => GlobalCountsResponse)
-    counts: GlobalCountsResponse;
+    @Expose() @Type(() => DiversityIndicesResponse) indices: DiversityIndicesResponse;
+    @Expose() @Type(() => GlobalCountsResponse) counts: GlobalCountsResponse;
 }
 
 export class SpeciesRecordResponse {
@@ -35,20 +28,11 @@ export class SpeciesRecordResponse {
 
 export class ZoneDetailResponse {
     @Expose() zone_name: string;
-
-    @Expose()
-    @Type(() => DiversityIndicesResponse)
-    indices: DiversityIndicesResponse;
-
+    @Expose() @Type(() => DiversityIndicesResponse) indices: DiversityIndicesResponse;
     @Expose() riqueza: number;
     @Expose() total_individuos: number;
-
-    @Expose()
-    @Type(() => SpeciesRecordResponse)
-    speciesRecords: SpeciesRecordResponse[];
+    @Expose() @Type(() => SpeciesRecordResponse) speciesRecords: SpeciesRecordResponse[];
 }
-
-// ─── DTO de respuesta principal ───────────────────────────────────────────────
 
 export class ProjectResponseDto {
     @Expose()
@@ -64,11 +48,6 @@ export class ProjectResponseDto {
     @Expose() startDate: Date;
     @Expose() endDate: Date;
 
-    @Expose()
-    @Type(() => GlobalMetricsResponse)
-    globalMetrics: GlobalMetricsResponse;
-
-    @Expose()
-    @Type(() => ZoneDetailResponse)
-    zonesDetails: ZoneDetailResponse[];
+    @Expose() @Type(() => GlobalMetricsResponse) globalMetrics: GlobalMetricsResponse;
+    @Expose() @Type(() => ZoneDetailResponse) zonesDetails: ZoneDetailResponse[];
 }
