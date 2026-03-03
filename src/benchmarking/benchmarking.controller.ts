@@ -20,7 +20,7 @@ import { GoogleOAuthService } from './services/google-oauth.service';
 @Controller('benchmarking')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class BenchmarkingController {
-    private readonly PROJECT_ID = 1;
+    private readonly PROJECT_ID = 8;
 
     constructor(
         private readonly snapshotService: SnapshotService,
@@ -48,12 +48,8 @@ export class BenchmarkingController {
 
         const rawRows = await this.snapshotService.getSnapshot();
         const rows = this.snapshotService.formatForBigQuery(rawRows);
-
-        let inserted = 0;
-        for (const row of rows) {
-            await this.bigQueryService.insertDailyQueryMetric(googleToken, row);
-            inserted++;
-}
+        const inserted = await this.bigQueryService.insertDailyQueryMetrics(googleToken, rows);
+        
         return {
             message: 'Snapshot enviado a BigQuery exitosamente.',
             rowsInserted: inserted,
