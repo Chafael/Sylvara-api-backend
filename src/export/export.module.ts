@@ -3,7 +3,6 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { MongooseModule } from '@nestjs/mongoose';
 
 import { BigQueryService } from './bigquery.service';
-import { PdfService } from './services/pdf.service';
 import { ReportDataService } from './services/report-data.service';
 import { ExportController } from './export.controller';
 
@@ -17,7 +16,8 @@ import { SamplingPlot as MongoPlot, SamplingPlotSchema } from '../bio-core/proje
         MongooseModule.forFeature([{ name: MongoPlot.name, schema: SamplingPlotSchema }]),
     ],
     controllers: [ExportController],
-    providers: [BigQueryService, PdfService, ReportDataService],
-    exports: [BigQueryService, PdfService, ReportDataService],
+    providers: [BigQueryService, ReportDataService],
+    exports: [BigQueryService, ReportDataService],
 })
 export class ExportModule { }
+
