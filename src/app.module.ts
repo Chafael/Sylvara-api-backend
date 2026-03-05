@@ -6,6 +6,8 @@ import { AuthModule } from './auth/auth.module';
 import { BioCoreModule } from './bio-core/bio-core.module';
 import { ExportModule } from './export/export.module';
 import { BenchmarkingModule } from './benchmarking/benchmarking.module';
+import { ProfileModule } from './profile/profile.module';
+import { DashboardModule } from './dashboard/dashboard.module';
 
 @Module({
   imports: [
@@ -40,6 +42,8 @@ import { BenchmarkingModule } from './benchmarking/benchmarking.module';
     BioCoreModule,
     ExportModule,
     BenchmarkingModule,
+    ProfileModule,
+    DashboardModule,
   ],
 })
 export class AppModule { }

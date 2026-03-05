@@ -24,7 +24,10 @@ export class User {
     @Column({ nullable: false, select: false })
     user_password: string;
 
-    // 'USER' o 'ADMIN' segun el contrato OpenAPI
+    @Column({ nullable: true, default: null })
+    profile_picture_url: string | null;
+
+    // 'USER' o 'ADMIN'
     @Column({ default: 'USER' })
     user_role: string;
 }
