@@ -5,7 +5,7 @@ import {
     NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { DataSource, Repository } from 'typeorm';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 
@@ -37,6 +37,8 @@ export class SpeciesService {
 
         @InjectModel(MongoPlot.name)
         private readonly mongoPlotModel: Model<SamplingPlotDocument>,
+
+        private readonly dataSource: DataSource,
     ) { }
 
     // ─── Helpers ────────────────────────────────────────────────────────────
@@ -206,7 +208,7 @@ export class SpeciesService {
         return { message: 'Especie eliminada de la zona exitosamente.' };
     }
 
-    // ─── Edición inteligente (global y local) ──────────────────────────────────
+    // ─── Edición inteligente (global y local) con transacción ───────────────
 
     async update(
         speciesZoneId: number,
@@ -222,23 +224,26 @@ export class SpeciesService {
         });
         if (!sz) throw new NotFoundException('Registro de especie no encontrado.');
 
-        // campos globales → afectan species para todas las zonas del proyecto
-        if (dto.speciesName || dto.imageUrl !== undefined || dto.functionalTypeId) {
-            await this.speciesRepo.update(sz.species_id, {
-                ...(dto.speciesName && { species_name: dto.speciesName }),
-                ...(dto.imageUrl !== undefined && { species_image_url: dto.imageUrl }),
-                ...(dto.functionalTypeId && { functional_type_id: dto.functionalTypeId }),
-            });
-        }
+        // TRANSACCIÓN: actualiza datos globales (species) y locales (species_zone) de forma atómica
+        await this.dataSource.transaction(async (manager) => {
+            // campos globales → afectan species para todas las zonas del proyecto
+            if (dto.speciesName || dto.imageUrl !== undefined || dto.functionalTypeId) {
+                await manager.update(Species, sz.species_id, {
+                    ...(dto.speciesName && { species_name: dto.speciesName }),
+                    ...(dto.imageUrl !== undefined && { species_image_url: dto.imageUrl }),
+                    ...(dto.functionalTypeId && { functional_type_id: dto.functionalTypeId }),
+                });
+            }
 
-        // campos locales → solo el registro en species_zone de esta zona
-        if (dto.individualCount || dto.heightMin !== undefined || dto.heightMax !== undefined) {
-            await this.speciesZoneRepo.update(speciesZoneId, {
-                ...(dto.individualCount !== undefined && { individual_count: dto.individualCount }),
-                ...(dto.heightMin !== undefined && { height_stratum_min: dto.heightMin }),
-                ...(dto.heightMax !== undefined && { height_stratum_max: dto.heightMax }),
-            });
-        }
+            // campos locales → solo el registro en species_zone de esta zona
+            if (dto.individualCount || dto.heightMin !== undefined || dto.heightMax !== undefined) {
+                await manager.update(SpeciesZone, speciesZoneId, {
+                    ...(dto.individualCount !== undefined && { individual_count: dto.individualCount }),
+                    ...(dto.heightMin !== undefined && { height_stratum_min: dto.heightMin }),
+                    ...(dto.heightMax !== undefined && { height_stratum_max: dto.heightMax }),
+                });
+            }
+        });
 
         const full = await this.speciesZoneRepo.findOne({
             where: { species_zone_id: speciesZoneId },
