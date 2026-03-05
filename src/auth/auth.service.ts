@@ -4,7 +4,7 @@ import {
     UnauthorizedException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { DataSource, EntityManager, Repository } from 'typeorm';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 
@@ -24,9 +24,10 @@ export class AuthService {
         private readonly refreshTokenRepository: Repository<RefreshToken>,
 
         private readonly jwtService: JwtService,
+        private readonly dataSource: DataSource,
     ) { }
 
-    // convierte la entidad de BD al objeto user del contrato OpenAPI
+    // da formato al usuario para la respuesta
     private toAuthUser(user: User): AuthUser {
         return {
             id: user.user_id,
@@ -45,18 +46,22 @@ export class AuthService {
         };
     }
 
-    /** Guarda un refresh token en la tabla refresh_tokens */
-    private async saveRefreshToken(userId: number, token: string): Promise<void> {
+    // guarda el refresh token con fecha de expiración
+    private async saveRefreshToken(
+        userId: number,
+        token: string,
+        manager: EntityManager,
+    ): Promise<void> {
         const expiresAt = new Date();
         expiresAt.setDate(expiresAt.getDate() + 30); // 30 días
 
-        const record = this.refreshTokenRepository.create({
+        const record = manager.create(RefreshToken, {
             user_id: userId,
             token,
             expires_at: expiresAt,
         });
 
-        await this.refreshTokenRepository.save(record);
+        await manager.save(record);
     }
 
     async register(dto: RegisterUserDto): Promise<AuthResponse> {
@@ -70,26 +75,30 @@ export class AuthService {
 
         const hashedPassword = await bcrypt.hash(dto.password, 10);
 
-        // mapeo DTO (OpenAPI) a columnas de PostgreSQL
-        const user = this.userRepository.create({
-            user_name: dto.name,
-            user_lastname: dto.lastname,
-            user_birthday: new Date(dto.birthday),
-            user_email: dto.email,
-            user_password: hashedPassword,
+//1DA TRANSACCIÓN (crear usuario y guardar sesión) - DOBLE INSERT
+        return this.dataSource.transaction(async (manager) => {
+
+            const user = manager.create(User, {
+                user_name: dto.name,
+                user_lastname: dto.lastname,
+                user_birthday: new Date(dto.birthday),
+                user_email: dto.email,
+                user_password: hashedPassword,
+            });
+
+            const saved = await manager.save(user);
+            const { accessToken, refreshToken } = this.signTokens(saved);
+
+            // guarda la sesión del usuario
+            await this.saveRefreshToken(saved.user_id, refreshToken, manager);
+
+            await manager.queryRunner!.commitTransaction();
+            return { accessToken, refreshToken, user: this.toAuthUser(saved) };
         });
-
-        const saved = await this.userRepository.save(user);
-        const { accessToken, refreshToken } = this.signTokens(saved);
-
-        // persistir el refresh token en la BD
-        await this.saveRefreshToken(saved.user_id, refreshToken);
-
-        return { accessToken, refreshToken, user: this.toAuthUser(saved) };
     }
 
     async login(dto: LoginUserDto): Promise<AuthResponse> {
-        // incluir password porque select: false lo excluye por defecto
+        // se pide el password porque por defecto no se incluye
         const user = await this.userRepository.findOne({
             where: { user_email: dto.email },
             select: ['user_id', 'user_name', 'user_lastname', 'user_email', 'user_password', 'user_role'],
@@ -106,10 +115,15 @@ export class AuthService {
 
         const { accessToken, refreshToken } = this.signTokens(user);
 
-        // persistir el refresh token en la BD
-        await this.saveRefreshToken(user.user_id, refreshToken);
 
-        return { accessToken, refreshToken, user: this.toAuthUser(user) };
+//2DA TRANSACCIÓN (guardar sesión) - INSERT SIMPLE
+        return this.dataSource.transaction(async (manager) => {
+            // guarda la sesión del usuario
+            await this.saveRefreshToken(user.user_id, refreshToken, manager);
+
+            await manager.queryRunner!.commitTransaction();
+            return { accessToken, refreshToken, user: this.toAuthUser(user) };
+        });
     }
 
     async refresh(refreshToken: string): Promise<AuthResponse> {
@@ -121,7 +135,7 @@ export class AuthService {
             throw new UnauthorizedException('La sesión ha expirado. Por favor, inicia sesión nuevamente.');
         }
 
-        // verificar que el token existe en la BD (no fue invalidado)
+        // verifica que la sesión siga activa
         const tokenRecord = await this.refreshTokenRepository.findOne({
             where: { token: refreshToken, user_id: payload.sub },
         });
@@ -138,12 +152,18 @@ export class AuthService {
             throw new UnauthorizedException('La sesión ha expirado. Por favor, inicia sesión nuevamente.');
         }
 
-        // eliminar el token viejo y emitir uno nuevo (rotación)
-        await this.refreshTokenRepository.delete({ token_id: tokenRecord.token_id });
+//3DA TRANSACCIÓN (borrar y crear token) - DELETE SEGUIDO DE INSERT
+        // renueva la sesión de forma atómica
         const tokens = this.signTokens(user);
-        await this.saveRefreshToken(user.user_id, tokens.refreshToken);
+
+        await this.dataSource.transaction(async (manager) => {
+            await manager.delete(RefreshToken, { token_id: tokenRecord.token_id });
+            await this.saveRefreshToken(user.user_id, tokens.refreshToken, manager);
+            await manager.queryRunner!.commitTransaction();
+        });
 
         return { ...tokens, user: this.toAuthUser(user) };
+
     }
 
     async logout(refreshToken: string): Promise<{ message: string }> {
@@ -155,7 +175,7 @@ export class AuthService {
             throw new UnauthorizedException('No autorizado. Debes iniciar sesión para realizar esta acción.');
         }
 
-        // eliminar el registro de la tabla refresh_tokens
+        // cierra la sesión del usuario
         const result = await this.refreshTokenRepository.delete({
             token: refreshToken,
             user_id: payload.sub,
