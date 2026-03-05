@@ -75,7 +75,7 @@ export class AuthService {
 
         const hashedPassword = await bcrypt.hash(dto.password, 10);
 
-//1DA TRANSACCIÓN (crear usuario y guardar sesión) - DOBLE INSERT
+        //1DA TRANSACCIÓN (crear usuario y guardar sesión) - DOBLE INSERT
         return this.dataSource.transaction(async (manager) => {
 
             const user = manager.create(User, {
@@ -92,7 +92,6 @@ export class AuthService {
             // guarda la sesión del usuario
             await this.saveRefreshToken(saved.user_id, refreshToken, manager);
 
-            await manager.queryRunner!.commitTransaction();
             return { accessToken, refreshToken, user: this.toAuthUser(saved) };
         });
     }
@@ -116,12 +115,11 @@ export class AuthService {
         const { accessToken, refreshToken } = this.signTokens(user);
 
 
-//2DA TRANSACCIÓN (guardar sesión) - INSERT SIMPLE
+        //2DA TRANSACCIÓN (guardar sesión) - INSERT SIMPLE
         return this.dataSource.transaction(async (manager) => {
             // guarda la sesión del usuario
             await this.saveRefreshToken(user.user_id, refreshToken, manager);
 
-            await manager.queryRunner!.commitTransaction();
             return { accessToken, refreshToken, user: this.toAuthUser(user) };
         });
     }
@@ -152,14 +150,13 @@ export class AuthService {
             throw new UnauthorizedException('La sesión ha expirado. Por favor, inicia sesión nuevamente.');
         }
 
-//3DA TRANSACCIÓN (borrar y crear token) - DELETE SEGUIDO DE INSERT
+        //3DA TRANSACCIÓN (borrar y crear token) - DELETE SEGUIDO DE INSERT
         // renueva la sesión de forma atómica
         const tokens = this.signTokens(user);
 
         await this.dataSource.transaction(async (manager) => {
             await manager.delete(RefreshToken, { token_id: tokenRecord.token_id });
             await this.saveRefreshToken(user.user_id, tokens.refreshToken, manager);
-            await manager.queryRunner!.commitTransaction();
         });
 
         return { ...tokens, user: this.toAuthUser(user) };
