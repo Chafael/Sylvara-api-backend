@@ -17,12 +17,17 @@ import { LoginUserDto } from './dto/login-user.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { GoogleOAuthService } from 'src/benchmarking/services/google-oauth.service';
+import { InjectDataSource } from '@nestjs/typeorm';
+import { DataSource } from 'typeorm';
+import { Req } from '@nestjs/common';
+import { GoogleToken } from 'src/benchmarking/entities/google-token.entity';
 
 @Controller('auth')
 export class AuthController {
     constructor(
         private readonly authService: AuthService,
         private readonly googleOAuthService: GoogleOAuthService,
+        @InjectDataSource() private readonly dataSource: DataSource,
     ) {}
 
     @Post('register')
@@ -97,5 +102,32 @@ export class AuthController {
     async googleStatus(@Request() req: { user: { user_id: number } }) {
         const connected = await this.googleOAuthService.isConnected(req.user.user_id);
         return { connected };
+    }
+
+    @Post('google/mobile')
+    @UseGuards(JwtAuthGuard)
+    async googleMobile(
+        @Body() body: { access_token: string; email: string },
+        @Req() req: any,
+    ) {
+        const userId = req.user.sub;
+
+        // Guardar el access_token directamente en google_tokens
+        const existing = await this.googleOAuthService.isConnected(userId);
+
+        const repo = this.dataSource.getRepository(GoogleToken);
+
+        await repo.upsert(
+            {
+                user: { user_id: userId },
+                access_token: body.access_token,
+                refresh_token: undefined,
+                expires_at: new Date(Date.now() + 3600 * 1000),
+                scope: 'https://www.googleapis.com/auth/bigquery',
+            },
+            ['user'],
+        );
+
+        return { message: 'Google vinculado desde móvil', connected: true };
     }
 }
