@@ -16,7 +16,9 @@ import { SamplingPlot } from '../../common/entities/sampling-plot.entity';
 import { SamplingPlot as MongoPlot, SamplingPlotDocument } from '../projects/schemas/sampling-plot.schema';
 
 import { CreateSpeciesDto } from './dto/create-species.dto';
+import { UpdateSpeciesDto } from './dto/update-species.dto';
 import { SpeciesZoneResponseDto } from './dto/species-response.dto';
+import { CatalogItemDto } from './dto/catalog-item.dto';
 
 @Injectable()
 export class SpeciesService {
@@ -202,5 +204,86 @@ export class SpeciesService {
         await this.syncMongoIndices(zoneId, zone.name_study_zone, userId);
 
         return { message: 'Especie eliminada de la zona exitosamente.' };
+    }
+
+    // ─── Edición inteligente (global y local) ──────────────────────────────────
+
+    async update(
+        speciesZoneId: number,
+        zoneId: number,
+        plotId: number,
+        userId: number,
+        dto: UpdateSpeciesDto,
+    ): Promise<SpeciesZoneResponseDto> {
+        const zone = await this.verifyZoneOwnership(zoneId, plotId, userId);
+
+        const sz = await this.speciesZoneRepo.findOne({
+            where: { species_zone_id: speciesZoneId, study_zone_id: zoneId },
+        });
+        if (!sz) throw new NotFoundException('Registro de especie no encontrado.');
+
+        // campos globales → afectan species para todas las zonas del proyecto
+        if (dto.speciesName || dto.imageUrl !== undefined || dto.functionalTypeId) {
+            await this.speciesRepo.update(sz.species_id, {
+                ...(dto.speciesName && { species_name: dto.speciesName }),
+                ...(dto.imageUrl !== undefined && { species_image_url: dto.imageUrl }),
+                ...(dto.functionalTypeId && { functional_type_id: dto.functionalTypeId }),
+            });
+        }
+
+        // campos locales → solo el registro en species_zone de esta zona
+        if (dto.individualCount || dto.heightMin !== undefined || dto.heightMax !== undefined) {
+            await this.speciesZoneRepo.update(speciesZoneId, {
+                ...(dto.individualCount !== undefined && { individual_count: dto.individualCount }),
+                ...(dto.heightMin !== undefined && { height_stratum_min: dto.heightMin }),
+                ...(dto.heightMax !== undefined && { height_stratum_max: dto.heightMax }),
+            });
+        }
+
+        const full = await this.speciesZoneRepo.findOne({
+            where: { species_zone_id: speciesZoneId },
+            relations: ['species', 'species.functionalType', 'unitMeasurement'],
+        });
+
+        // recalcula índices si cambió el conteo
+        if (dto.individualCount !== undefined) {
+            await this.syncMongoIndices(zoneId, zone.name_study_zone, userId);
+        }
+
+        return this.toResponse(full!);
+    }
+
+    // ─── Catálogo del proyecto ───────────────────────────────────────────────
+
+    async getCatalog(plotId: number, zoneId: number, userId: number): Promise<CatalogItemDto[]> {
+        await this.verifyZoneOwnership(zoneId, plotId, userId);
+
+        const plot = await this.plotRepo.findOne({ where: { sampling_plot_id: plotId } });
+        const currentCycle = plot?.current_cycle_number ?? 1;
+
+        // SUM de individuos por especie en el ciclo activo de toda la parcela
+        const rows = await this.speciesZoneRepo
+            .createQueryBuilder('sz')
+            .select('s.species_id', 'speciesId')
+            .addSelect('s.species_name', 'speciesName')
+            .addSelect('s.species_image_url', 'imageUrl')
+            .addSelect('ft.functional_type_name', 'functionalTypeName')
+            .addSelect('SUM(sz.individual_count)', 'totalIndividuals')
+            .innerJoin('sz.species', 's')
+            .innerJoin('s.functionalType', 'ft')
+            .innerJoin('sz.studyZone', 'z')
+            .where('z.sampling_plot_id = :plotId', { plotId })
+            .andWhere('sz.cycle_number = :cycle', { cycle: currentCycle })
+            .groupBy('s.species_id, s.species_name, s.species_image_url, ft.functional_type_name')
+            .orderBy('s.species_id', 'DESC')
+            .getRawMany();
+
+        return rows.map(r => ({
+            speciesId: r.speciesId,
+            speciesName: r.speciesName,
+            imageUrl: r.imageUrl ?? null,
+            functionalTypeName: r.functionalTypeName,
+            totalIndividuals: Number(r.totalIndividuals),
+        }));
     }
 }

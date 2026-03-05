@@ -63,14 +63,14 @@ export class ZonesService {
         return zone;
     }
 
-    async findAll(plotId: number, userId: number): Promise<ZoneResponseDto[]> {
-        await this.verifyPlot(plotId, userId);
+    async findAll(plotId: number, userId: number): Promise<{ currentCycle: number; zones: ZoneResponseDto[] }> {
+        const plot = await this.verifyPlot(plotId, userId);
         const zones = await this.zoneRepository
             .createQueryBuilder('z')
             .leftJoinAndSelect('z.unitMeasurement', 'um')
             .where('z.sampling_plot_id = :plotId', { plotId })
             .getMany();
-        return zones.map(z => this.toResponse(z));
+        return { currentCycle: plot.current_cycle_number, zones: zones.map(z => this.toResponse(z)) };
     }
 
     async create(plotId: number, userId: number, dto: CreateZoneDto): Promise<ZoneResponseDto> {
