@@ -15,7 +15,7 @@ export class Species {
     @Column({ nullable: false })
     species_name: string;
 
-    @Column({ nullable: true, default: null })
+    @Column({ type: 'varchar', length: 512, nullable: true, default: null })
     species_image_url: string | null;
 
     @Column({ nullable: false })

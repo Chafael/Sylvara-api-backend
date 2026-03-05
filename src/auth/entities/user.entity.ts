@@ -24,7 +24,7 @@ export class User {
     @Column({ nullable: false, select: false })
     user_password: string;
 
-    @Column({ nullable: true, default: null })
+    @Column({ type: 'varchar', length: 512, nullable: true, default: null })
     profile_picture_url: string | null;
 
     // 'USER' o 'ADMIN'
