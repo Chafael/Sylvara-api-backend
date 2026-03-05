@@ -1,4 +1,4 @@
-// Objeto user dentro de AuthResponse (contrato OpenAPI)
+// Objeto user dentro de AuthResponse 
 export interface AuthUser {
     id: number;
     name: string;
