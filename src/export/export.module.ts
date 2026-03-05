@@ -7,12 +7,13 @@ import { ReportDataService } from './services/report-data.service';
 import { ExportController } from './export.controller';
 
 import { SamplingPlot } from '../common/entities/sampling-plot.entity';
+import { UnitMeasurement } from '../common/entities/unit-measurement.entity';
 import { User } from '../auth/entities/user.entity';
 import { SamplingPlot as MongoPlot, SamplingPlotSchema } from '../bio-core/projects/schemas/sampling-plot.schema';
 
 @Module({
     imports: [
-        TypeOrmModule.forFeature([SamplingPlot, User]),
+        TypeOrmModule.forFeature([SamplingPlot, UnitMeasurement, User]),
         MongooseModule.forFeature([{ name: MongoPlot.name, schema: SamplingPlotSchema }]),
     ],
     controllers: [ExportController],
