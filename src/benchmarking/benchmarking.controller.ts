@@ -2,6 +2,7 @@ import {
     Controller,
     Get,
     Post,
+    Body,
     Request,
     Res,
     UseGuards,
@@ -16,6 +17,7 @@ import { SnapshotService } from './services/snapshot.service';
 import { BigQueryService } from '../export/bigquery.service';
 import { CsvService } from './services/csv.service';
 import { GoogleOAuthService } from './services/google-oauth.service';
+import { SnapshotRequestDto } from './dto/snapshot-request.dto';
 
 @Controller('benchmarking')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -27,7 +29,7 @@ export class BenchmarkingController {
         private readonly bigQueryService: BigQueryService,
         private readonly csvService: CsvService,
         private readonly googleOAuthService: GoogleOAuthService,
-    ) {}
+    ) { }
 
     // ─── Corte del Día (usuario autenticado) ─────────────────
 
@@ -37,19 +39,18 @@ export class BenchmarkingController {
         return this.snapshotService.getSnapshot();
     }
 
-    @Post('bigquery/send')
-    @HttpCode(HttpStatus.CREATED)
-    async sendToBigQuery(
+    @Post('snapshot')
+    @HttpCode(HttpStatus.OK)
+    async createSnapshot(
+        @Body() dto: SnapshotRequestDto,
         @Request() req: { user: { user_id: number } },
     ) {
-        const googleToken = await this.googleOAuthService.getValidAccessToken(
-            req.user.user_id,
-        );
+        const googleToken = dto.googleAccessToken;
 
         const rawRows = await this.snapshotService.getSnapshot();
         const rows = this.snapshotService.formatForBigQuery(rawRows);
         const inserted = await this.bigQueryService.insertDailyQueryMetrics(googleToken, rows);
-        
+
         return {
             message: 'Snapshot enviado a BigQuery exitosamente.',
             rowsInserted: inserted,

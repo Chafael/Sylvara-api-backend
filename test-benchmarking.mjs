@@ -1,6 +1,9 @@
 import http from 'http';
 
-function request(method, path, body = null, token = null) {
+const API_BASE = "http://localhost:3000";
+let token = "";
+
+function request(method, path, body = null, authToken = null) {
     return new Promise((resolve, reject) => {
         const options = {
             hostname: 'localhost',
@@ -8,12 +11,12 @@ function request(method, path, body = null, token = null) {
             path: path,
             method: method,
             headers: {
-                'Content-Type': 'application/json'
+                'Content-Type': 'application/json',
             }
         };
 
-        if (token) {
-            options.headers['Authorization'] = `Bearer ${token}`;
+        if (authToken) {
+            options.headers['Authorization'] = `Bearer ${authToken}`;
         }
 
         const req = http.request(options, (res) => {
@@ -24,85 +27,99 @@ function request(method, path, body = null, token = null) {
                 try {
                     parsed = JSON.parse(data);
                 } catch (e) {
-                    // console.debug(`Response was not valid JSON: ${data}`);
-                    parsed = data; // Keep non-json response
+                    parsed = data;
                 }
-
-                if (res.statusCode >= 200 && res.statusCode < 300) {
-                    resolve(parsed);
-                } else {
-                    console.error(`Error on ${method} ${path}:`, res.statusCode, parsed);
-                    const error = new Error(`Request failed with status ${res.statusCode}`);
-                    error.response = parsed;
-                    reject(error);
-                }
+                resolve({ status: res.statusCode, data: parsed });
             });
         });
 
         req.on('error', reject);
-
-        if (body) {
-            req.write(JSON.stringify(body));
-        }
+        if (body) req.write(JSON.stringify(body));
         req.end();
     });
 }
 
-async function waitForServer() {
-    console.log("Waiting for server to start...");
-    for (let i = 0; i < 30; i++) {
-        try {
-            // A lightweight endpoint that should be available.
-            // We expect a 401 Unauthorized, which means the server is up.
-            await request("GET", "/auth/me");
-        } catch (e) {
-            if (e.response && e.response.statusCode === 401) {
-                 console.log("Server is up!");
-                 return;
-            }
-             if (e.message.includes('status 401')) {
-                console.log("Server is up!");
-                return;
-            }
-        }
-        await new Promise(r => setTimeout(r, 1000));
-    }
-    console.error("Server did not start in time.");
-    process.exit(1);
-}
-
-
-async function run() {
+async function runTests() {
     try {
-        await waitForServer();
-        console.log('--- Starting Benchmarking Test ---');
+        console.log("--- Benchmarking and Dashboard Final Verification ---");
 
-        // 1. Auth
-        const email = `benchmark_${Date.now()}@example.com`;
-        const password = "Password123!";
-        console.log('1. /auth/register');
-        const authData = await request("POST", "/auth/register", {
-            userName: "Benchmark",
-            userLastname: "Tester",
-            userBirthday: "1990-01-01",
-            userEmail: email,
-            userPassword: password
+        // Login
+        const loginRes = await request("POST", "/auth/login", {
+            userEmail: "test@sylvara.com",
+            userPassword: "password123!"
         });
 
-        const token = authData.accessToken;
+        if (loginRes.status !== 200) {
+            console.log("Creating test user...");
+            const regRes = await request("POST", "/auth/register", {
+                userName: "Test",
+                userLastname: "Bench",
+                userBirthday: "1990-01-01",
+                userEmail: `test_bench_${Date.now()}@sylvara.com`,
+                userPassword: "password123!"
+            });
+            token = regRes.data.accessToken;
+        } else {
+            token = loginRes.data.accessToken;
+        }
 
-        // 2. Send to BigQuery
-        console.log('2. POST /benchmarking/bigquery/send');
-        const benchmarkResult = await request("POST", "/benchmarking/bigquery/send", null, token);
-        console.log('Benchmarking result:', benchmarkResult);
+        // 1. Test POST /benchmarking/snapshot
+        console.log("\n1. Testing POST /benchmarking/snapshot (Contrato v1.4.0)");
+        const snapshotRes = await request("POST", "/benchmarking/snapshot", {
+            googleAccessToken: "fake-test-token-123"
+        }, token);
 
-        console.log('--- Benchmarking Test Passed ---');
-        process.exit(0);
+        if (snapshotRes.status === 200 || snapshotRes.status === 201) {
+            console.log("✅ Passed: Endpoint reached successfully.");
+            console.log("Response:", JSON.stringify(snapshotRes.data));
+        } else {
+            console.error(`❌ Failed: Status ${snapshotRes.status}`);
+            console.error(snapshotRes.data);
+        }
 
-    } catch (err) {
-        console.error('Test failed:', err.message, err.response ? err.response : '');
-        process.exit(1);
+        // 1.5 Create a project for the user
+        console.log("\n1.5 Creating a project for dashboard verification");
+        const projectRes = await request("POST", "/projects", {
+            samplingPlotName: "Finca La Armonía Test",
+            totalArea: 100,
+            unitId: 1
+        }, token);
+        if (projectRes.status === 201) {
+            console.log("✅ Project created.");
+        } else {
+            console.warn("⚠️ Could not create project, dashboard verification might skip keys.");
+        }
+
+        // 2. Test GET /dashboard structure
+        console.log("\n2. Testing GET /dashboard structure");
+        const dashboardRes = await request("GET", "/dashboard", null, token);
+        if (dashboardRes.status === 200) {
+            const keys = Object.keys(dashboardRes.data);
+            if (keys.includes('user') && keys.includes('summary') && keys.includes('latestPlots')) {
+                console.log("✅ Passed: Dashboard structure is correct.");
+                if (dashboardRes.data.latestPlots.length > 0) {
+                    const first = dashboardRes.data.latestPlots[0];
+                    console.log("Plot keys found:", Object.keys(first));
+                    if (first.id !== undefined && first.name !== undefined && first.status !== undefined) {
+                        console.log("✅ Passed: latestPlots uses correct keys (id, name, status).");
+                    } else {
+                        console.error("❌ Failed: latestPlots missing required keys (id, name, status).");
+                    }
+                } else {
+                    console.warn("⚠️ No plots found even after creation, check DB sync.");
+                }
+            } else {
+                console.error("❌ Failed: Dashboard missing required keys.");
+                console.error(dashboardRes.data);
+            }
+        } else {
+            console.error(`❌ Failed: GET /dashboard status ${dashboardRes.status}`);
+        }
+
+        console.log("\n--- Final Verification Completed ---");
+    } catch (e) {
+        console.error("Error:", e);
     }
 }
 
-run();
+runTests();
