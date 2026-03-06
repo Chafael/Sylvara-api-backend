@@ -158,7 +158,7 @@ async function runTests() {
         checkKeys(dashboard.user, ['userName', 'profilePictureUrl'], [], 'DashboardResponse_user');
         checkKeys(dashboard.summary, ['totalHistoricalPlots', 'currentMonthPlots'], [], 'DashboardResponse_summary');
         if (dashboard.latestPlots.length > 0) {
-            checkKeys(dashboard.latestPlots[0], ['samplingPlotId', 'samplingPlotName', 'description', 'totalArea', 'areaUnit', 'samplingPlotStatus', 'startDate'], ['endDate'], 'LatestPlotView');
+            checkKeys(dashboard.latestPlots[0], ['id', 'name', 'description', 'totalArea', 'areaUnit', 'status', 'startDate'], ['endDate'], 'LatestPlotView');
         }
 
         console.log("12. GET /export/report-data/:id");

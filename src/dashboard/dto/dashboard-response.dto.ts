@@ -1,10 +1,10 @@
 export class LatestPlotDto {
-    samplingPlotId: number;
-    samplingPlotName: string;
+    id: number;
+    name: string;
     description: string | null;
     totalArea: number;
     areaUnit: string;
-    samplingPlotStatus: string;
+    status: string;
     startDate: Date | null;
 }
 
