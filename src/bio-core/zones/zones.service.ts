@@ -64,7 +64,7 @@ export class ZonesService {
         return zone;
     }
 
-    async findAll(plotId: number, userId: number): Promise<{ currentCycle: number; globalMetrics?: any; zones: ZoneResponseDto[] }> {
+    async findAll(plotId: number, userId: number): Promise<{ samplingPlotId: number; cycleNumber: number; globalMetrics?: any; zones: ZoneResponseDto[] }> {
         const plot = await this.verifyPlot(plotId, userId);
         const zones = await this.zoneRepository
             .createQueryBuilder('z')
@@ -73,9 +73,14 @@ export class ZonesService {
             .getMany();
 
         const mongoPlot = await this.mongoPlotModel.findOne({ postgresId: plotId }).exec();
-        const globalMetrics = mongoPlot?.globalMetrics;
+        const globalMetrics = mongoPlot?.globalMetrics || null;
 
-        return { currentCycle: plot.currentCycleNumber, globalMetrics, zones: zones.map(z => this.toResponse(z)) };
+        return {
+            samplingPlotId: plot.samplingPlotId,
+            cycleNumber: plot.currentCycleNumber,
+            globalMetrics,
+            zones: zones.map(z => this.toResponse(z))
+        };
     }
 
     async create(plotId: number, userId: number, dto: CreateZoneDto): Promise<ZoneResponseDto> {

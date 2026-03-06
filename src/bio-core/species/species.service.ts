@@ -49,7 +49,7 @@ export class SpeciesService {
             speciesZoneId: sz.species_zone_id,
             speciesId: sz.species_id,
             speciesName: sz.species?.speciesName ?? '',
-            imageUrl: sz.species?.speciesImageUrl ?? null,
+            speciesImageUrl: sz.species?.speciesImageUrl ?? null,
             functionalTypeId: sz.species?.functionalTypeId ?? 0,
             functionalTypeName: sz.species?.functionalType?.functional_type_name ?? '',
             individualCount: sz.individual_count,
@@ -197,7 +197,7 @@ export class SpeciesService {
             const created = this.speciesRepo.create({
                 speciesName: dto.speciesName,
                 functionalTypeId: dto.functionalTypeId,
-                speciesImageUrl: dto.imageUrl ?? null,
+                speciesImageUrl: dto.speciesImageUrl ?? null,
             });
             const saved = await this.speciesRepo.save(created);
             speciesId = saved.speciesId;
@@ -271,20 +271,20 @@ export class SpeciesService {
         // TRANSACCIÓN: actualiza datos globales (species) y locales (species_zone) de forma atómica
         await this.dataSource.transaction(async (manager) => {
             // campos globales → afectan species para todas las zonas del proyecto
-            if (dto.speciesName || dto.imageUrl !== undefined || dto.functionalTypeId) {
+            if (dto.speciesName || dto.speciesImageUrl !== undefined || dto.functionalTypeId) {
                 await manager.update(Species, sz.species_id, {
                     ...(dto.speciesName && { speciesName: dto.speciesName }),
-                    ...(dto.imageUrl !== undefined && { speciesImageUrl: dto.imageUrl }),
+                    ...(dto.speciesImageUrl !== undefined && { speciesImageUrl: dto.speciesImageUrl }),
                     ...(dto.functionalTypeId && { functionalTypeId: dto.functionalTypeId }),
                 });
             }
 
             // campos locales → solo el registro en species_zone de esta zona
-            if (dto.individualCount || dto.heightMin !== undefined || dto.heightMax !== undefined) {
+            if (dto.individualCount || dto.heightStratumMin !== undefined || dto.heightStratumMax !== undefined) {
                 await manager.update(SpeciesZone, speciesZoneId, {
                     ...(dto.individualCount !== undefined && { individual_count: dto.individualCount }),
-                    ...(dto.heightMin !== undefined && { height_stratum_min: dto.heightMin }),
-                    ...(dto.heightMax !== undefined && { height_stratum_max: dto.heightMax }),
+                    ...(dto.heightStratumMin !== undefined && { height_stratum_min: dto.heightStratumMin }),
+                    ...(dto.heightStratumMax !== undefined && { height_stratum_max: dto.heightStratumMax }),
                 });
             }
         });
@@ -315,7 +315,7 @@ export class SpeciesService {
             .createQueryBuilder('sz')
             .select('s.speciesId', 'speciesId')
             .addSelect('s.speciesName', 'speciesName')
-            .addSelect('s.speciesImageUrl', 'imageUrl')
+            .addSelect('s.speciesImageUrl', 'speciesImageUrl')
             .addSelect('ft.functional_type_name', 'functionalTypeName')
             .addSelect('SUM(sz.individual_count)', 'totalIndividuals')
             .innerJoin('sz.species', 's')
@@ -330,7 +330,7 @@ export class SpeciesService {
         return rows.map(r => ({
             speciesId: r.speciesId,
             speciesName: r.speciesName,
-            imageUrl: r.imageUrl ?? null,
+            speciesImageUrl: r.speciesImageUrl ?? null,
             functionalTypeName: r.functionalTypeName,
             totalIndividuals: Number(r.totalIndividuals),
         }));

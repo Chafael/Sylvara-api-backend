@@ -35,9 +35,11 @@ export class DashboardService {
             .getMany();
 
         return {
-            summary: {
+            user: {
                 userName: user?.user_name ?? '',
-                pictureUrl: user?.profile_picture_url ?? null,
+                profilePictureUrl: user?.profile_picture_url ?? null,
+            },
+            summary: {
                 totalHistoricalPlots: totalHistoricalPlots,
                 currentMonthPlots: currentMonthPlots,
             },

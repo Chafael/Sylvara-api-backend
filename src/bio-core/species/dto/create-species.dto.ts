@@ -19,7 +19,7 @@ export class CreateSpeciesDto {
 
     @IsOptional()
     @IsUrl()
-    imageUrl?: string;
+    speciesImageUrl?: string;
 
     @IsInt()
     @IsPositive()

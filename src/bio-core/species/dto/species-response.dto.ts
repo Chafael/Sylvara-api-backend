@@ -2,7 +2,7 @@ export class SpeciesZoneResponseDto {
     speciesZoneId: number;
     speciesId: number;
     speciesName: string;
-    imageUrl: string | null;
+    speciesImageUrl: string | null;
     functionalTypeId: number;
     functionalTypeName: string;
     individualCount: number;

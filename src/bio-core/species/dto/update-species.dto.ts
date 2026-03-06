@@ -15,7 +15,7 @@ export class UpdateSpeciesDto {
 
     @IsOptional()
     @IsUrl()
-    imageUrl?: string;
+    speciesImageUrl?: string;
 
     @IsOptional()
     @IsInt()
@@ -30,9 +30,9 @@ export class UpdateSpeciesDto {
 
     @IsOptional()
     @IsNumber()
-    heightMin?: number;
+    heightStratumMin?: number;
 
     @IsOptional()
     @IsNumber()
-    heightMax?: number;
+    heightStratumMax?: number;
 }

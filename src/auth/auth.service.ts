@@ -34,12 +34,21 @@ export class AuthService {
 
     // da formato al usuario para la respuesta
     private toAuthUser(user: User): AuthUser {
+        let birthdayStr = '';
+        if (user.user_birthday) {
+            const dateStr = typeof user.user_birthday === 'string'
+                ? user.user_birthday
+                : user.user_birthday.toISOString();
+            birthdayStr = dateStr.split('T')[0];
+        }
         return {
-            id: user.user_id,
-            name: user.user_name,
-            lastname: user.user_lastname,
-            email: user.user_email,
-            role: user.user_role ?? 'USER',
+            userId: user.user_id,
+            userName: user.user_name,
+            userLastname: user.user_lastname,
+            userBirthday: birthdayStr,
+            userEmail: user.user_email,
+            profilePictureUrl: user.profile_picture_url ?? null,
+            userRole: user.user_role ?? 'USER',
         };
     }
 
@@ -102,15 +111,15 @@ export class AuthService {
     async login(dto: LoginUserDto): Promise<AuthResponse> {
         // se pide el password porque por defecto no se incluye
         const user = await this.userRepository.findOne({
-            where: { user_email: dto.email },
-            select: ['user_id', 'user_name', 'user_lastname', 'user_email', 'user_password', 'user_role'],
+            where: { user_email: dto.userEmail },
+            select: ['user_id', 'user_name', 'user_lastname', 'user_birthday', 'user_email', 'profile_picture_url', 'user_password', 'user_role'],
         });
 
         if (!user) {
             throw new UnauthorizedException('Credenciales inválidas.');
         }
 
-        const isValid = await bcrypt.compare(dto.password, user.user_password);
+        const isValid = await bcrypt.compare(dto.userPassword, user.user_password);
         if (!isValid) {
             throw new UnauthorizedException('Credenciales inválidas.');
         }
