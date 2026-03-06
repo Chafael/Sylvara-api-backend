@@ -28,7 +28,7 @@ export class SamplingPlot {
     @Column({ nullable: false })
     sampling_plot_name: string;
 
-    @Column({ type: 'varchar', nullable: true, default: null })
+    @Column({ type: 'text', nullable: true, default: null })
     description: string | null;
 
     @Column({ type: 'numeric', precision: 10, scale: 2, nullable: false })

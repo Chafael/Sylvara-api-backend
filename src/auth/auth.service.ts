@@ -80,7 +80,6 @@ export class AuthService {
 
         const hashedPassword = await bcrypt.hash(dto.userPassword, BCRYPT_ROUNDS);
 
-
         // TRANSACCIÓN: crear usuario y guardar sesión en un solo bloque atómico
         return this.dataSource.transaction(async (manager) => {
             const user = manager.create(User, {
@@ -118,14 +117,18 @@ export class AuthService {
 
         const { accessToken, refreshToken } = this.signTokens(user);
 
+        // INSERT simple sin transacción: solo se guarda el refresh token
+        const expiresAt = new Date();
+        expiresAt.setDate(expiresAt.getDate() + 30);
 
-        //2DA TRANSACCIÓN (guardar sesión) - INSERT SIMPLE
-        return this.dataSource.transaction(async (manager) => {
-            // guarda la sesión del usuario
-            await this.saveRefreshToken(user.user_id, refreshToken, manager);
-
-            return { accessToken, refreshToken, user: this.toAuthUser(user) };
+        const record = this.refreshTokenRepository.create({
+            user_id: user.user_id,
+            token: refreshToken,
+            expires_at: expiresAt,
         });
+        await this.refreshTokenRepository.save(record);
+
+        return { accessToken, refreshToken, user: this.toAuthUser(user) };
     }
 
     async refresh(refreshToken: string): Promise<AuthResponse> {
@@ -154,8 +157,7 @@ export class AuthService {
             throw new UnauthorizedException('La sesión ha expirado. Por favor, inicia sesión nuevamente.');
         }
 
-        //3DA TRANSACCIÓN (borrar y crear token) - DELETE SEGUIDO DE INSERT
-        // renueva la sesión de forma atómica
+        // TRANSACCIÓN: borrar token viejo y crear nuevo (rotación atómica)
         const tokens = this.signTokens(user);
 
         await this.dataSource.transaction(async (manager) => {

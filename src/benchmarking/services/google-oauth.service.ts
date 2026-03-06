@@ -28,7 +28,6 @@ export class GoogleOAuthService {
         );
     }
 
-    /** Genera la URL de autorización de Google */
     getAuthUrl(userId: number): string {
         return this.oauth2Client.generateAuthUrl({
             access_type: 'offline',
@@ -38,14 +37,12 @@ export class GoogleOAuthService {
         });
     }
 
-    /** Intercambia el code por tokens y los guarda en BD */
     async handleCallback(code: string, userId: number): Promise<GoogleToken> {
         try {
             const { tokens } = await this.oauth2Client.getToken(code);
 
             const expiresAt = new Date(tokens.expiry_date ?? Date.now() + 3600 * 1000);
 
-            // upsert: actualizar si ya existe, crear si no
             let record = await this.googleTokenRepository.findOne({
                 where: { user_id: userId },
             });
@@ -54,7 +51,6 @@ export class GoogleOAuthService {
                 record.access_token = tokens.access_token!;
                 record.expires_at = expiresAt;
                 record.scope = tokens.scope ?? this.BIGQUERY_SCOPE;
-                // solo actualizar refresh_token si Google envía uno nuevo
                 if (tokens.refresh_token) {
                     record.refresh_token = tokens.refresh_token;
                 }

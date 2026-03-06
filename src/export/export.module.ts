@@ -21,4 +21,3 @@ import { SamplingPlot as MongoPlot, SamplingPlotSchema } from '../bio-core/proje
     exports: [BigQueryService, ReportDataService],
 })
 export class ExportModule { }
-

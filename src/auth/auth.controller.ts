@@ -113,25 +113,28 @@ export class AuthController {
     @UseGuards(JwtAuthGuard)
     async googleMobile(
         @Body() body: { access_token: string; email: string },
-        @Req() req: any,
+        @Request() req: { user: { user_id: number } },
     ) {
-        const userId = req.user.sub;
-
-        // Guardar el access_token directamente en google_tokens
-        const existing = await this.googleOAuthService.isConnected(userId);
+        const userId = req.user.user_id;
 
         const repo = this.dataSource.getRepository(GoogleToken);
 
-        await repo.upsert(
-            {
-                user: { user_id: userId },
+        const existing = await repo.findOne({ where: { user_id: userId } });
+
+        if (existing) {
+            existing.access_token = body.access_token;
+            existing.expires_at = new Date(Date.now() + 3600 * 1000);
+            existing.scope = 'https://www.googleapis.com/auth/bigquery';
+            await repo.save(existing);
+        } else {
+            const record = repo.create({
+                user_id: userId,
                 access_token: body.access_token,
-                refresh_token: undefined,
                 expires_at: new Date(Date.now() + 3600 * 1000),
                 scope: this.googleOAuthService.BIGQUERY_SCOPE,
-            },
-            ['user'],
-        );
+            });
+            await repo.save(record);
+        }
 
         return { message: 'Google vinculado desde móvil', connected: true };
     }
