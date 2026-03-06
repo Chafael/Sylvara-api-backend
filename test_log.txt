@@ -1,0 +1,37 @@
+--- Initializing Test Setup ---
+Plot created: 31 (Total Area: 100)
+Plot data: {"samplingPlotId":31,"userId":19,"samplingPlotName":"Edge Plot 2013","description":"Testing edge cases","samplingPlotStatus":"active","totalArea":100,"unitId":1,"unitName":"Metros","currentCycleNumber":1,"startDate":"2026-03-05T00:00:00.000Z","zonesDetails":[]}
+\n1. Prueba de 'Exceso de Área' (Validación 422)
+✅ Passed: Status 422 Unprocessable Entity
+   Message: La suma de las áreas de estudio excede el área total de la parcela.
+\n2. Prueba de 'Alturas Inválidas' (Validación 422)
+✅ Passed: Status 422 Unprocessable Entity
+   Message: El estrato de altura mínimo no puede ser mayor o igual al máximo.
+\n3. Prueba de 'Especie Duplicada' (Lógica 200/409)
+   Registrando especie: Pino 6832 en Zona 16
+✅ Passed Acción A: Status 409 Conflict (Misma zona)
+   Code: undefined
+✅ Passed Acción B: Status 200 OK (En otra zona)
+   Code: SPECIES_EXISTS_IN_CATALOG
+   Reused speciesId: 12
+\n4. Verificación de Índices de Biodiversidad (MongoDB)
+✅ Passed: globalMetrics recuperados exitosamente.
+   -> Shannon:  0.6906
+   -> Simpson:  0.4841
+   -> Margalef: 0.3001
+   -> Pielou:   0.9963
+✅ Passed: Los índices muestran valores calculados (mayores a cero).
+\n5. Revisión del Dashboard Final (GET /dashboard)
+✅ Passed: Status 200 OK
+   User: Test
+   Total Histórico: 1
+   Proyectos Mes Actual: 1
+   Últimos proyectos: 1 (ej. Edge Plot 2013)
+\n6. Fase 5: Benchmarking (POST /benchmarking/snapshot)
+❌ Failed: Unexpected status 404
+{
+  message: 'Cannot POST /benchmarking/snapshot',
+  error: 'Not Found',
+  statusCode: 404
+}
+\n--- Pruebas de Logica de Negocio Finalizadas ---
