@@ -28,12 +28,12 @@ const GlobalMetricsSchema = SchemaFactory.createForClass(GlobalMetrics);
 
 @Schema({ _id: false })
 class SpeciesRecord {
-    @Prop({ type: String }) species_name: string;
-    @Prop({ type: String }) common_name: string;
-    @Prop({ type: String }) functional_type_name: string;
-    @Prop({ type: Number }) individual_count: number;
-    @Prop({ type: Number }) height_min: number;
-    @Prop({ type: Number }) height_max: number;
+    @Prop({ type: String }) speciesName: string;
+    @Prop({ type: String }) commonName: string;
+    @Prop({ type: String }) functionalTypeName: string;
+    @Prop({ type: Number }) individualCount: number;
+    @Prop({ type: Number }) heightStratumMin: number;
+    @Prop({ type: Number }) heightStratumMax: number;
 }
 const SpeciesRecordSchema = SchemaFactory.createForClass(SpeciesRecord);
 

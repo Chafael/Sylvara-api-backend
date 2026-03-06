@@ -38,12 +38,12 @@ export class GlobalMetricsDto {
 }
 
 export class SpeciesRecordDto {
-    @IsOptional() @IsString() species_name?: string;
-    @IsOptional() @IsString() common_name?: string;
-    @IsOptional() @IsString() functional_type_name?: string;
-    @IsOptional() @IsNumber() individual_count?: number;
-    @IsOptional() @IsNumber() height_min?: number;
-    @IsOptional() @IsNumber() height_max?: number;
+    @IsOptional() @IsString() speciesName?: string;
+    @IsOptional() @IsString() commonName?: string;
+    @IsOptional() @IsString() functionalTypeName?: string;
+    @IsOptional() @IsNumber() individualCount?: number;
+    @IsOptional() @IsNumber() heightStratumMin?: number;
+    @IsOptional() @IsNumber() heightStratumMax?: number;
 }
 
 export class ZoneDetailDto {

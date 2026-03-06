@@ -18,12 +18,12 @@ export class GlobalMetricsResponse {
 }
 
 export class SpeciesRecordResponse {
-    @Expose() species_name: string;
-    @Expose() common_name: string;
-    @Expose() functional_type_name: string;
-    @Expose() individual_count: number;
-    @Expose() height_min: number;
-    @Expose() height_max: number;
+    @Expose() speciesName: string;
+    @Expose() commonName: string;
+    @Expose() functionalTypeName: string;
+    @Expose() individualCount: number;
+    @Expose() heightStratumMin: number;
+    @Expose() heightStratumMax: number;
 }
 
 export class ZoneDetailResponse {
