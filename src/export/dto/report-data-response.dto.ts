@@ -13,8 +13,8 @@ export class ZoneBiodiversityDto {
         commonName: string;
         functionalTypeName: string;
         individualCount: number;
-        heightMin: number;
-        heightMax: number;
+        heightStratumMin: number;
+        heightStratumMax: number;
     }[];
 }
 

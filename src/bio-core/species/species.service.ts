@@ -126,18 +126,18 @@ export class SpeciesService {
 
             // Fetch plot for updating local zone correctly
             await this.mongoPlotModel.updateOne(
-                { postgresId: plotId, 'zonesDetails.zone_name': zoneName },
+                { postgresId: plotId, 'zonesDetails.zoneName': zoneName },
                 {
                     $set: {
                         'zonesDetails.$.indices.shannon': localIndices.shannon,
                         'zonesDetails.$.indices.simpson': localIndices.simpson,
                         'zonesDetails.$.indices.margalef': localIndices.margalef,
                         'zonesDetails.$.indices.pielou': localIndices.pielou,
-                        'zonesDetails.$.total_individuos': localCounts.reduce((a, b) => a + b, 0),
+                        'zonesDetails.$.totalIndividuos': localCounts.reduce((a, b) => a + b, 0),
                         'zonesDetails.$.riqueza': localCounts.length,
                         'globalMetrics': {
                             indices: globalIndices,
-                            counts: { riqueza: globalRiqueza, total_individuos: globalTotalIndividuos }
+                            counts: { riqueza: globalRiqueza, totalIndividuos: globalTotalIndividuos }
                         }
                     },
                 },

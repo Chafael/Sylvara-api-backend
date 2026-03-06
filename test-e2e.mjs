@@ -161,6 +161,16 @@ async function runTests() {
             checkKeys(dashboard.latestPlots[0], ['samplingPlotId', 'samplingPlotName', 'description', 'totalArea', 'areaUnit', 'samplingPlotStatus', 'startDate'], ['endDate'], 'LatestPlotView');
         }
 
+        console.log("12. GET /export/report-data/:id");
+        const exportData = await request("GET", `/export/report-data/${plotId}`, null, token);
+        checkKeys(exportData, ['projectName', 'totalArea', 'status', 'researcherName', 'researcherLastname', 'zonesDetails'], ['description', 'startDate', 'endDate'], 'ReportDataResponse');
+        if (exportData.zonesDetails && exportData.zonesDetails.length > 0) {
+            checkKeys(exportData.zonesDetails[0], ['zoneName', 'riqueza', 'totalIndividuos', 'indices', 'speciesRecords'], [], 'ZoneBiodiversity');
+            if (exportData.zonesDetails[0].speciesRecords.length > 0) {
+                checkKeys(exportData.zonesDetails[0].speciesRecords[0], ['speciesName', 'commonName', 'functionalTypeName', 'individualCount', 'heightStratumMin', 'heightStratumMax'], [], 'ReportSpeciesRecord');
+            }
+        }
+
         console.log("--- All tests passed! Contract compliance verified. ---");
         process.exit(0);
     } catch (err) {

@@ -26,7 +26,7 @@ export class DiversityIndicesDto {
 
 export class GlobalCountsDto {
     @IsOptional() @IsNumber() riqueza?: number;
-    @IsOptional() @IsNumber() total_individuos?: number;
+    @IsOptional() @IsNumber() totalIndividuos?: number;
 }
 
 export class GlobalMetricsDto {
@@ -47,13 +47,13 @@ export class SpeciesRecordDto {
 }
 
 export class ZoneDetailDto {
-    @IsString() @IsNotEmpty() zone_name: string;
+    @IsString() @IsNotEmpty() zoneName: string;
 
     @IsOptional() @ValidateNested() @Type(() => DiversityIndicesDto)
     indices?: DiversityIndicesDto;
 
     @IsOptional() @IsNumber() riqueza?: number;
-    @IsOptional() @IsNumber() total_individuos?: number;
+    @IsOptional() @IsNumber() totalIndividuos?: number;
 
     @IsOptional() @IsArray() @ValidateNested({ each: true }) @Type(() => SpeciesRecordDto)
     speciesRecords?: SpeciesRecordDto[];

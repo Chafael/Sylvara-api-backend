@@ -9,7 +9,7 @@ export class DiversityIndicesResponse {
 
 export class GlobalCountsResponse {
     @Expose() riqueza: number;
-    @Expose() total_individuos: number;
+    @Expose() totalIndividuos: number;
 }
 
 export class GlobalMetricsResponse {
@@ -27,10 +27,10 @@ export class SpeciesRecordResponse {
 }
 
 export class ZoneDetailResponse {
-    @Expose() zone_name: string;
+    @Expose() zoneName: string;
     @Expose() @Type(() => DiversityIndicesResponse) indices: DiversityIndicesResponse;
     @Expose() riqueza: number;
-    @Expose() total_individuos: number;
+    @Expose() totalIndividuos: number;
     @Expose() @Type(() => SpeciesRecordResponse) speciesRecords: SpeciesRecordResponse[];
 }
 

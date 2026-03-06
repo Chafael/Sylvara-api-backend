@@ -15,7 +15,7 @@ const DiversityIndicesSchema = SchemaFactory.createForClass(DiversityIndices);
 @Schema({ _id: false })
 class GlobalCounts {
     @Prop({ type: Number }) riqueza: number;
-    @Prop({ type: Number }) total_individuos: number;
+    @Prop({ type: Number }) totalIndividuos: number;
 }
 const GlobalCountsSchema = SchemaFactory.createForClass(GlobalCounts);
 
@@ -39,10 +39,10 @@ const SpeciesRecordSchema = SchemaFactory.createForClass(SpeciesRecord);
 
 @Schema({ _id: false })
 class ZoneDetail {
-    @Prop({ type: String, required: true }) zone_name: string;
+    @Prop({ type: String, required: true }) zoneName: string;
     @Prop({ type: DiversityIndicesSchema }) indices: DiversityIndices;
     @Prop({ type: Number }) riqueza: number;
-    @Prop({ type: Number }) total_individuos: number;
+    @Prop({ type: Number }) totalIndividuos: number;
     @Prop({ type: [SpeciesRecordSchema], default: [] }) speciesRecords: SpeciesRecord[];
 }
 const ZoneDetailSchema = SchemaFactory.createForClass(ZoneDetail);

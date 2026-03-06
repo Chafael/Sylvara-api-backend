@@ -111,7 +111,7 @@ export class ZonesService {
         // sincroniza el biodiversity_cache en MongoDB
         await this.mongoPlotModel.updateOne(
             { postgresId: plotId },
-            { $push: { zonesDetails: { zone_name: dto.nameStudyZone } } },
+            { $push: { zonesDetails: { zoneName: dto.nameStudyZone } } },
         ).exec().catch(() => null); // el sync de Mongo no bloquea si falla
 
         return this.toResponse(full!);
@@ -154,7 +154,7 @@ export class ZonesService {
         // elimina la zona del cache de MongoDB
         await this.mongoPlotModel.updateOne(
             { userId },
-            { $pull: { zonesDetails: { zone_name: zone.name_study_zone } } },
+            { $pull: { zonesDetails: { zoneName: zone.name_study_zone } } },
         ).exec().catch(() => null);
 
         return { message: 'Zona eliminada exitosamente.' };
