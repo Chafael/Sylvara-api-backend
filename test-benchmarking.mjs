@@ -100,10 +100,10 @@ async function runTests() {
                 if (dashboardRes.data.latestPlots.length > 0) {
                     const first = dashboardRes.data.latestPlots[0];
                     console.log("Plot keys found:", Object.keys(first));
-                    if (first.id !== undefined && first.name !== undefined && first.status !== undefined) {
-                        console.log("✅ Passed: latestPlots uses correct keys (id, name, status).");
+                    if (first.samplingPlotId !== undefined && first.samplingPlotName !== undefined && first.samplingPlotStatus !== undefined) {
+                        console.log("✅ Passed: latestPlots uses correct long keys (samplingPlotId, samplingPlotName, samplingPlotStatus).");
                     } else {
-                        console.error("❌ Failed: latestPlots missing required keys (id, name, status).");
+                        console.error("❌ Failed: latestPlots missing required long keys.");
                     }
                 } else {
                     console.warn("⚠️ No plots found even after creation, check DB sync.");

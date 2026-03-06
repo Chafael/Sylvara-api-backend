@@ -44,12 +44,12 @@ export class DashboardService {
                 currentMonthPlots: currentMonthPlots,
             },
             latestPlots: latestPlots.map((p) => ({
-                id: p.samplingPlotId,
-                name: p.samplingPlotName,
+                samplingPlotId: p.samplingPlotId,
+                samplingPlotName: p.samplingPlotName,
                 description: p.description ?? null,
                 totalArea: Number(p.totalArea),
                 areaUnit: p.unitMeasurement?.unit_name ?? '',
-                status: p.samplingPlotStatus as unknown as string,
+                samplingPlotStatus: p.samplingPlotStatus as unknown as string,
                 startDate: p.startDate ?? null,
             })),
         };
