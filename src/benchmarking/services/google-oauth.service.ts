@@ -12,7 +12,8 @@ import { GoogleToken } from '../entities/google-token.entity';
 @Injectable()
 export class GoogleOAuthService {
     private readonly oauth2Client: OAuth2Client;
-    private readonly BIGQUERY_SCOPE = 'https://www.googleapis.com/auth/bigquery';
+    readonly BIGQUERY_SCOPE = 'https://www.googleapis.com/auth/bigquery';
+
 
     constructor(
         private readonly configService: ConfigService,

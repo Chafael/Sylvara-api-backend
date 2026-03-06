@@ -6,6 +6,11 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, EntityManager, Repository } from 'typeorm';
 import { JwtService } from '@nestjs/jwt';
+
+const BCRYPT_ROUNDS = 10;
+const ACCESS_TOKEN_EXPIRY = '7d';
+const REFRESH_TOKEN_EXPIRY = '30d';
+const REFRESH_TOKEN_DAYS = 30;
 import * as bcrypt from 'bcrypt';
 
 import { User } from './entities/user.entity';
@@ -41,8 +46,8 @@ export class AuthService {
     private signTokens(user: User) {
         const payload = { sub: user.user_id, email: user.user_email, role: user.user_role };
         return {
-            accessToken: this.jwtService.sign(payload, { expiresIn: '7d' }),
-            refreshToken: this.jwtService.sign(payload, { expiresIn: '30d' }),
+            accessToken: this.jwtService.sign(payload, { expiresIn: ACCESS_TOKEN_EXPIRY }),
+            refreshToken: this.jwtService.sign(payload, { expiresIn: REFRESH_TOKEN_EXPIRY }),
         };
     }
 
@@ -53,7 +58,7 @@ export class AuthService {
         manager: EntityManager,
     ): Promise<void> {
         const expiresAt = new Date();
-        expiresAt.setDate(expiresAt.getDate() + 30); // 30 días
+        expiresAt.setDate(expiresAt.getDate() + REFRESH_TOKEN_DAYS);
 
         const record = manager.create(RefreshToken, {
             user_id: userId,
@@ -66,22 +71,23 @@ export class AuthService {
 
     async register(dto: RegisterUserDto): Promise<AuthResponse> {
         const exists = await this.userRepository.findOne({
-            where: { user_email: dto.email },
+            where: { user_email: dto.userEmail },
         });
 
         if (exists) {
             throw new ConflictException('El correo electrónico ya está registrado.');
         }
 
-        const hashedPassword = await bcrypt.hash(dto.password, 10);
+        const hashedPassword = await bcrypt.hash(dto.userPassword, BCRYPT_ROUNDS);
+
 
         // TRANSACCIÓN: crear usuario y guardar sesión en un solo bloque atómico
         return this.dataSource.transaction(async (manager) => {
             const user = manager.create(User, {
-                user_name: dto.name,
-                user_lastname: dto.lastname,
-                user_birthday: new Date(dto.birthday),
-                user_email: dto.email,
+                user_name: dto.userName,
+                user_lastname: dto.userLastname,
+                user_birthday: new Date(dto.userBirthday),
+                user_email: dto.userEmail,
                 user_password: hashedPassword,
             });
 

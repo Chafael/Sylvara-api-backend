@@ -51,7 +51,6 @@ const ZoneDetailSchema = SchemaFactory.createForClass(ZoneDetail);
 @Schema({ collection: 'sampling_plots', timestamps: true })
 export class SamplingPlot {
     @Prop({ required: true, trim: true }) name: string;
-    @Prop({ required: true }) image: string;
     @Prop() description: string;
 
     @Prop({ type: String, enum: ['active', 'inactive'], default: 'active' })
@@ -59,7 +58,10 @@ export class SamplingPlot {
 
     @Prop({ required: true, type: Number }) totalArea: number;
     @Prop({ required: true, type: Number }) unitId: number;
+    @Prop({ type: String, default: 'Metros' }) unitName: string;
     @Prop({ required: true, type: Number }) userId: number;
+    @Prop({ required: true, type: Number, unique: true }) postgresId: number;
+    @Prop({ type: Number, default: 1 }) currentCycleNumber: number;
     @Prop({ type: Date }) startDate: Date;
     @Prop({ type: Date }) endDate: Date;
 

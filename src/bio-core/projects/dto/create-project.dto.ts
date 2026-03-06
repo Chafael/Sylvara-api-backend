@@ -60,13 +60,12 @@ export class ZoneDetailDto {
 }
 
 export class CreateProjectDto {
-    @IsString() @IsNotEmpty() name: string;
-    @IsString() @IsNotEmpty() image: string;
+    @IsString() @IsNotEmpty() samplingPlotName: string;
+
     @IsString() @IsOptional() description?: string;
     @IsEnum(PlotStatus) @IsOptional() status?: PlotStatus;
     @IsNumber() @IsPositive() totalArea: number;
     @IsInt() unitId: number;
-    @IsInt() userId: number;
     @IsDateString() @IsOptional() startDate?: string;
     @IsDateString() @IsOptional() endDate?: string;
 

@@ -25,15 +25,14 @@ export class CreateSpeciesDto {
     @IsPositive()
     individualCount: number;
 
-    @IsOptional()
     @IsNumber()
-    heightMin?: number;
+    heightStratumMin: number;
+
+    @IsNumber()
+    heightStratumMax: number;
 
     @IsOptional()
-    @IsNumber()
-    heightMax?: number;
-
     @IsInt()
     @IsPositive()
-    unitId: number;
+    unitId?: number;
 }

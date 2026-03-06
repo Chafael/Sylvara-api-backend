@@ -18,6 +18,7 @@ import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { GoogleOAuthService } from 'src/benchmarking/services/google-oauth.service';
 import { InjectDataSource } from '@nestjs/typeorm';
+import { ConfigService } from '@nestjs/config';
 import { DataSource } from 'typeorm';
 import { Req } from '@nestjs/common';
 import { GoogleToken } from 'src/benchmarking/entities/google-token.entity';
@@ -27,8 +28,9 @@ export class AuthController {
     constructor(
         private readonly authService: AuthService,
         private readonly googleOAuthService: GoogleOAuthService,
+        private readonly configService: ConfigService,
         @InjectDataSource() private readonly dataSource: DataSource,
-    ) {}
+    ) { }
 
     @Post('register')
     register(@Body() dto: RegisterUserDto) {
@@ -93,7 +95,10 @@ export class AuthController {
         await this.googleOAuthService.handleCallback(code, userId);
 
         // redirigir al frontend con éxito
-        res.redirect('http://localhost:3001/benchmarking?google=connected');
+        const successUrl = this.configService.get<string>('GOOGLE_SUCCESS_REDIRECT')
+            ?? 'http://localhost:3001/benchmarking?google=connected';
+        res.redirect(successUrl);
+
     }
 
     /** Verifica si el usuario tiene Google conectado */
@@ -123,7 +128,7 @@ export class AuthController {
                 access_token: body.access_token,
                 refresh_token: undefined,
                 expires_at: new Date(Date.now() + 3600 * 1000),
-                scope: 'https://www.googleapis.com/auth/bigquery',
+                scope: this.googleOAuthService.BIGQUERY_SCOPE,
             },
             ['user'],
         );

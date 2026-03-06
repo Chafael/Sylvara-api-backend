@@ -2,6 +2,7 @@ import {
     ForbiddenException,
     Injectable,
     NotFoundException,
+    UnprocessableEntityException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -30,8 +31,8 @@ export class ZonesService {
 
     private toResponse(zone: StudyZone): ZoneResponseDto {
         return {
-            id: zone.study_zone_id,
-            name: zone.name_study_zone,
+            studyZoneId: zone.study_zone_id,
+            nameStudyZone: zone.name_study_zone,
             subArea: Number(zone.sub_area),
             unitId: zone.unit_id,
             unitName: zone.unitMeasurement?.unit_name ?? '',
@@ -63,23 +64,33 @@ export class ZonesService {
         return zone;
     }
 
-    async findAll(plotId: number, userId: number): Promise<{ currentCycle: number; zones: ZoneResponseDto[] }> {
+    async findAll(plotId: number, userId: number): Promise<{ currentCycle: number; globalMetrics?: any; zones: ZoneResponseDto[] }> {
         const plot = await this.verifyPlot(plotId, userId);
         const zones = await this.zoneRepository
             .createQueryBuilder('z')
             .leftJoinAndSelect('z.unitMeasurement', 'um')
             .where('z.sampling_plot_id = :plotId', { plotId })
             .getMany();
-        return { currentCycle: plot.current_cycle_number, zones: zones.map(z => this.toResponse(z)) };
+
+        const mongoPlot = await this.mongoPlotModel.findOne({ postgresId: plotId }).exec();
+        const globalMetrics = mongoPlot?.globalMetrics;
+
+        return { currentCycle: plot.current_cycle_number, globalMetrics, zones: zones.map(z => this.toResponse(z)) };
     }
 
     async create(plotId: number, userId: number, dto: CreateZoneDto): Promise<ZoneResponseDto> {
         const plot = await this.verifyPlot(plotId, userId);
 
+        const existingZones = await this.zoneRepository.find({ where: { sampling_plot_id: plotId } });
+        const currentSubAreaSum = existingZones.reduce((sum, z) => sum + Number(z.sub_area), 0);
+        if (currentSubAreaSum + dto.subArea > plot.total_area) {
+            throw new UnprocessableEntityException('La suma de las áreas de estudio excede el área total de la parcela.');
+        }
+
         // INSERT en PostgreSQL con el ciclo activo de la parcela
         const zone = this.zoneRepository.create({
             sampling_plot_id: plotId,
-            name_study_zone: dto.name,
+            name_study_zone: dto.nameStudyZone,
             sub_area: dto.subArea,
             unit_id: dto.unitId,
             cycle_number: plot.current_cycle_number,
@@ -94,18 +105,30 @@ export class ZonesService {
 
         // sincroniza el biodiversity_cache en MongoDB
         await this.mongoPlotModel.updateOne(
-            { userId, _id: { $exists: true } },
-            { $push: { zonesDetails: { zone_name: dto.name } } },
+            { postgresId: plotId },
+            { $push: { zonesDetails: { zone_name: dto.nameStudyZone } } },
         ).exec().catch(() => null); // el sync de Mongo no bloquea si falla
 
         return this.toResponse(full!);
     }
 
     async update(zoneId: number, plotId: number, userId: number, dto: UpdateZoneDto): Promise<ZoneResponseDto> {
-        await this.verifyZone(zoneId, plotId, userId);
+        const zone = await this.verifyZone(zoneId, plotId, userId);
+
+        if (dto.subArea) {
+            const plot = await this.plotRepository.findOne({ where: { sampling_plot_id: plotId } });
+            if (plot) {
+                const existingZones = await this.zoneRepository.find({ where: { sampling_plot_id: plotId } });
+                const currentSubAreaSum = existingZones.reduce((sum, z) =>
+                    sum + (z.study_zone_id === zoneId ? 0 : Number(z.sub_area)), 0);
+                if (currentSubAreaSum + dto.subArea > plot.total_area) {
+                    throw new UnprocessableEntityException('La suma de las áreas de estudio excede el área total de la parcela.');
+                }
+            }
+        }
 
         await this.zoneRepository.update(zoneId, {
-            ...(dto.name && { name_study_zone: dto.name }),
+            ...(dto.nameStudyZone && { name_study_zone: dto.nameStudyZone }),
             ...(dto.subArea && { sub_area: dto.subArea }),
             ...(dto.unitId && { unit_id: dto.unitId }),
         });

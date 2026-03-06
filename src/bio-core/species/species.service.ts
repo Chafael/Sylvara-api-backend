@@ -3,6 +3,7 @@ import {
     ForbiddenException,
     Injectable,
     NotFoundException,
+    UnprocessableEntityException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -50,8 +51,8 @@ export class SpeciesService {
             functionalTypeId: sz.species?.functional_type_id ?? 0,
             functionalTypeName: sz.species?.functionalType?.functional_type_name ?? '',
             individualCount: sz.individual_count,
-            heightMin: sz.height_stratum_min !== null ? Number(sz.height_stratum_min) : null,
-            heightMax: sz.height_stratum_max !== null ? Number(sz.height_stratum_max) : null,
+            heightStratumMin: sz.height_stratum_min !== null ? Number(sz.height_stratum_min) : null,
+            heightStratumMax: sz.height_stratum_max !== null ? Number(sz.height_stratum_max) : null,
             unitId: sz.unit_id,
             unitName: sz.unitMeasurement?.unit_name ?? '',
             cycleNumber: sz.cycle_number,
@@ -72,9 +73,10 @@ export class SpeciesService {
 
     // ─── Índices ecológicos ──────────────────────────────────────────────────
 
-    private calcIndices(counts: number[]): { shannon: number; simpson: number } {
+    private calcIndices(counts: number[]): { shannon: number; simpson: number; margalef: number; pielou: number } {
         const N = counts.reduce((a, b) => a + b, 0);
-        if (N === 0) return { shannon: 0, simpson: 0 };
+        const S = counts.length;
+        if (N === 0 || S === 0) return { shannon: 0, simpson: 0, margalef: 0, pielou: 0 };
 
         let shannon = 0;
         let simpsonNum = 0;
@@ -84,32 +86,63 @@ export class SpeciesService {
             shannon -= pi * Math.log(pi);
             simpsonNum += ni * (ni - 1);
         }
+
+        const simpson = N > 1 ? simpsonNum / (N * (N - 1)) : 0;
+        const margalef = N > 1 ? (S - 1) / Math.log(N) : 0;
+        const pielou = S > 1 ? shannon / Math.log(S) : 0;
+
         return {
             shannon: parseFloat(shannon.toFixed(4)),
-            simpson: parseFloat((N > 1 ? simpsonNum / (N * (N - 1)) : 0).toFixed(4)),
+            simpson: parseFloat(simpson.toFixed(4)),
+            margalef: parseFloat(margalef.toFixed(4)),
+            pielou: parseFloat(pielou.toFixed(4)),
         };
     }
 
-    // recalcula índices y los empuja al biodiversity_cache de MongoDB
-    private async syncMongoIndices(zoneId: number, zoneName: string, userId: number): Promise<void> {
+    // recalcula índices para la zona local, y calcula índices globales a nivel plot
+    private async syncMongoIndices(plotId: number, zoneId: number, zoneName: string, userId: number): Promise<void> {
         try {
-            const records = await this.speciesZoneRepo.find({ where: { study_zone_id: zoneId } });
-            const counts = records.map(r => r.individual_count);
-            const { shannon, simpson } = this.calcIndices(counts);
+            // Zona local
+            const localRecords = await this.speciesZoneRepo.find({ where: { study_zone_id: zoneId } });
+            const localCounts = localRecords.map(r => r.individual_count);
+            const localIndices = this.calcIndices(localCounts);
 
+            // Global plot
+            const globalRecords = await this.speciesZoneRepo
+                .createQueryBuilder('sz')
+                .select('sz.species_id', 'speciesId')
+                .addSelect('SUM(sz.individual_count)', 'total')
+                .innerJoin('sz.studyZone', 'z')
+                .where('z.sampling_plot_id = :plotId', { plotId })
+                .groupBy('sz.species_id')
+                .getRawMany();
+
+            const globalCounts = globalRecords.map(r => Number(r.total));
+            const globalIndices = this.calcIndices(globalCounts);
+            const globalRiqueza = globalCounts.length;
+            const globalTotalIndividuos = globalCounts.reduce((a, b) => a + b, 0);
+
+            // Fetch plot for updating local zone correctly
             await this.mongoPlotModel.updateOne(
-                { userId, 'zonesDetails.zone_name': zoneName },
+                { postgresId: plotId, 'zonesDetails.zone_name': zoneName },
                 {
                     $set: {
-                        'zonesDetails.$.indices.shannon': shannon,
-                        'zonesDetails.$.indices.simpson': simpson,
-                        'zonesDetails.$.total_individuos': counts.reduce((a, b) => a + b, 0),
-                        'zonesDetails.$.riqueza': records.length,
+                        'zonesDetails.$.indices.shannon': localIndices.shannon,
+                        'zonesDetails.$.indices.simpson': localIndices.simpson,
+                        'zonesDetails.$.indices.margalef': localIndices.margalef,
+                        'zonesDetails.$.indices.pielou': localIndices.pielou,
+                        'zonesDetails.$.total_individuos': localCounts.reduce((a, b) => a + b, 0),
+                        'zonesDetails.$.riqueza': localCounts.length,
+                        'globalMetrics': {
+                            indices: globalIndices,
+                            counts: { riqueza: globalRiqueza, total_individuos: globalTotalIndividuos }
+                        }
                     },
                 },
             ).exec();
-        } catch {
+        } catch (err) {
             // el sync de Mongo es no bloqueante
+            console.error('Error syncing Mongo indices:', err);
         }
     }
 
@@ -134,6 +167,10 @@ export class SpeciesService {
     async create(zoneId: number, plotId: number, userId: number, dto: CreateSpeciesDto): Promise<SpeciesZoneResponseDto> {
         const zone = await this.verifyZoneOwnership(zoneId, plotId, userId);
 
+        if (dto.heightStratumMin >= dto.heightStratumMax) {
+            throw new UnprocessableEntityException('El estrato de altura mínimo no puede ser mayor o igual al máximo.');
+        }
+
         // Paso 1: busca si la especie ya existe en cualquier zona del proyecto
         const existing = await this.speciesRepo
             .createQueryBuilder('s')
@@ -145,12 +182,15 @@ export class SpeciesService {
 
         // Paso 2: si no existe en el catálogo → crearla; si existe → reusar su ID
         let speciesId: number;
+        let isExistingInCatalog = false;
+
         if (existing) {
             speciesId = existing.species_id;
             const inZone = await this.speciesZoneRepo.findOne({
                 where: { species_id: speciesId, study_zone_id: zoneId },
             });
-            if (inZone) throw new ConflictException('La especie ya está registrada en esta zona.');
+            if (inZone) throw new ConflictException('SPECIES_EXISTS_IN_ZONE');
+            isExistingInCatalog = true;
         } else {
             const created = this.speciesRepo.create({
                 species_name: dto.speciesName,
@@ -166,9 +206,9 @@ export class SpeciesService {
             study_zone_id: zoneId,
             species_id: speciesId,
             individual_count: dto.individualCount,
-            height_stratum_min: dto.heightMin ?? null,
-            height_stratum_max: dto.heightMax ?? null,
-            unit_id: dto.unitId,
+            height_stratum_min: dto.heightStratumMin,
+            height_stratum_max: dto.heightStratumMax,
+            unit_id: 1, // Fixed value according to v1.4.0 contract
             cycle_number: zone.cycle_number,
         });
         const savedLink = await this.speciesZoneRepo.save(link);
@@ -179,9 +219,13 @@ export class SpeciesService {
         });
 
         // Paso 3: recalcula Shannon y Simpson y actualiza MongoDB
-        await this.syncMongoIndices(zoneId, zone.name_study_zone, userId);
+        await this.syncMongoIndices(plotId, zoneId, zone.name_study_zone, userId);
 
-        return this.toResponse(full!);
+        const responseObj = this.toResponse(full!);
+        if (isExistingInCatalog) {
+            (responseObj as any).code = 'SPECIES_EXISTS_IN_CATALOG';
+        }
+        return responseObj;
     }
 
     // ─── Eliminar especie de una zona ────────────────────────────────────────
@@ -201,7 +245,7 @@ export class SpeciesService {
         if (remaining === 0) await this.speciesRepo.delete({ species_id: sz.species_id });
 
         // recalcula índices en Mongo después del borrado
-        await this.syncMongoIndices(zoneId, zone.name_study_zone, userId);
+        await this.syncMongoIndices(plotId, zoneId, zone.name_study_zone, userId);
 
         return { message: 'Especie eliminada de la zona exitosamente.' };
     }
@@ -247,7 +291,7 @@ export class SpeciesService {
 
         // recalcula índices si cambió el conteo
         if (dto.individualCount !== undefined) {
-            await this.syncMongoIndices(zoneId, zone.name_study_zone, userId);
+            await this.syncMongoIndices(plotId, zoneId, zone.name_study_zone, userId);
         }
 
         return this.toResponse(full!);

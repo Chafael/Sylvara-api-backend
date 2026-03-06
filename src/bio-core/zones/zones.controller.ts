@@ -17,14 +17,14 @@ import { CreateZoneDto } from './dto/create-zone.dto';
 import { UpdateZoneDto } from './dto/update-zone.dto';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 
-@Controller('projects/:plotId/zones')
+@Controller('projects/:sampling_plot_id/zones')
 @UseGuards(JwtAuthGuard)
 export class ZonesController {
     constructor(private readonly zonesService: ZonesService) { }
 
     @Get()
     findAll(
-        @Param('plotId', ParseIntPipe) plotId: number,
+        @Param('sampling_plot_id', ParseIntPipe) plotId: number,
         @Request() req,
     ) {
         return this.zonesService.findAll(plotId, req.user.user_id);
@@ -32,7 +32,7 @@ export class ZonesController {
 
     @Post()
     create(
-        @Param('plotId', ParseIntPipe) plotId: number,
+        @Param('sampling_plot_id', ParseIntPipe) plotId: number,
         @Body() dto: CreateZoneDto,
         @Request() req,
     ) {
@@ -41,7 +41,7 @@ export class ZonesController {
 
     @Patch(':zoneId')
     update(
-        @Param('plotId', ParseIntPipe) plotId: number,
+        @Param('sampling_plot_id', ParseIntPipe) plotId: number,
         @Param('zoneId', ParseIntPipe) zoneId: number,
         @Body() dto: UpdateZoneDto,
         @Request() req,
@@ -52,7 +52,7 @@ export class ZonesController {
     @Delete(':zoneId')
     @HttpCode(HttpStatus.OK)
     remove(
-        @Param('plotId', ParseIntPipe) plotId: number,
+        @Param('sampling_plot_id', ParseIntPipe) plotId: number,
         @Param('zoneId', ParseIntPipe) zoneId: number,
         @Request() req,
     ) {

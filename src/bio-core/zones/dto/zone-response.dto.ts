@@ -1,6 +1,6 @@
 export class ZoneResponseDto {
-    id: number;
-    name: string;
+    studyZoneId: number;
+    nameStudyZone: string;
     subArea: number;
     unitId: number;
     unitName: string;

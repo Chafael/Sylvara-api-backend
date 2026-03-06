@@ -7,6 +7,8 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import * as bcrypt from 'bcrypt';
+
+const BCRYPT_ROUNDS = 10;
 import { User } from '../auth/entities/user.entity';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
@@ -72,7 +74,7 @@ export class ProfileService {
         const isValid = await bcrypt.compare(dto.currentPassword, user.user_password);
         if (!isValid) throw new UnauthorizedException('La contraseña actual es incorrecta.');
 
-        const hashed = await bcrypt.hash(dto.newPassword, 10);
+        const hashed = await bcrypt.hash(dto.newPassword, BCRYPT_ROUNDS);
         await this.userRepository.update(userId, { user_password: hashed });
 
         return { message: 'Contraseña actualizada exitosamente.' };

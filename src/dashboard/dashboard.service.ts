@@ -2,6 +2,13 @@ import { Injectable } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { DashboardResponseDto } from './dto/dashboard-response.dto';
 
+const DB_VIEWS = {
+    userSummary: 'view_user_summary',
+    latestPlots: 'view_latest_plots',
+} as const;
+
+
+
 @Injectable()
 export class DashboardService {
     constructor(private readonly dataSource: DataSource) { }
@@ -14,14 +21,14 @@ export class DashboardService {
                         u.profile_picture_url,
                         v.total_historical_plots,
                         v.current_month_plots
-                 FROM view_user_summary v
+                 FROM ${DB_VIEWS.userSummary} v
                  JOIN users u ON u.user_id = v.user_id
                  WHERE v.user_id = $1`,
                 [userId],
             ),
             this.dataSource.query<any[]>(
                 `SELECT id, name, description, total_area, area_unit, status, start_date
-                 FROM view_latest_plots
+                 FROM ${DB_VIEWS.latestPlots}
                  WHERE user_id = $1`,
                 [userId],
             ),

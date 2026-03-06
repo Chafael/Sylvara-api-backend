@@ -10,8 +10,10 @@ import {
     Patch,
     Post,
     Request,
+    Res,
     UseGuards,
 } from '@nestjs/common';
+import type { Response } from 'express';
 import { SpeciesService } from './species.service';
 import { CreateSpeciesDto } from './dto/create-species.dto';
 import { UpdateSpeciesDto } from './dto/update-species.dto';
@@ -41,13 +43,18 @@ export class SpeciesController {
     }
 
     @Post()
-    create(
+    async create(
         @Param('plotId', ParseIntPipe) plotId: number,
         @Param('zoneId', ParseIntPipe) zoneId: number,
         @Body() dto: CreateSpeciesDto,
         @Request() req,
+        @Res({ passthrough: true }) res: Response,
     ) {
-        return this.speciesService.create(zoneId, plotId, req.user.user_id, dto);
+        const result = await this.speciesService.create(zoneId, plotId, req.user.user_id, dto);
+        if (result && (result as any).code === 'SPECIES_EXISTS_IN_CATALOG') {
+            res.status(HttpStatus.OK);
+        }
+        return result;
     }
 
     @Patch(':speciesZoneId')

@@ -36,15 +36,25 @@ export class ZoneDetailResponse {
 
 export class ProjectResponseDto {
     @Expose()
-    @Transform(({ obj }) => obj._id?.toString())
-    id: string;
+    @Transform(({ obj }) => obj.postgresId)
+    samplingPlotId: number;
 
-    @Expose() name: string;
+    @Expose() userId: number;
+
+    @Expose()
+    @Transform(({ obj }) => obj.name)
+    samplingPlotName: string;
+
     @Expose() description: string;
-    @Expose() status: string;
-    @Expose() image: string;
+
+    @Expose()
+    @Transform(({ obj }) => obj.status)
+    samplingPlotStatus: string;
+
     @Expose() totalArea: number;
     @Expose() unitId: number;
+    @Expose() unitName: string;
+    @Expose() currentCycleNumber: number;
     @Expose() startDate: Date;
     @Expose() endDate: Date;
 

@@ -50,8 +50,8 @@ export class SamplingPlot {
     @Column({ type: 'int', default: 1 })
     current_cycle_number: number;
 
-    @Column({ type: 'date', nullable: true, default: null })
-    start_date: Date | null;
+    @Column({ type: 'date', nullable: false, default: () => 'CURRENT_DATE' })
+    start_date: Date;
 
     @Column({ type: 'date', nullable: true, default: null })
     end_date: Date | null;

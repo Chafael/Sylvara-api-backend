@@ -6,12 +6,15 @@ import {
     HttpCode,
     HttpStatus,
     Param,
+    ParseIntPipe,
+    Patch,
     Post,
     Request,
     UseGuards,
 } from '@nestjs/common';
 import { ProjectsService } from './projects.service';
 import { CreateProjectDto } from './dto/create-project.dto';
+import { UpdateProjectStatusRequest } from './dto/update-project-status.request';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 
 @Controller('projects')
@@ -29,14 +32,23 @@ export class ProjectsController {
         return this.projectsService.findAll(req.user.user_id);
     }
 
-    @Get(':id')
-    findOne(@Param('id') id: string, @Request() req) {
+    @Get(':sampling_plot_id')
+    findOne(@Param('sampling_plot_id', ParseIntPipe) id: number, @Request() req) {
         return this.projectsService.findOne(id, req.user.user_id);
     }
 
-    @Delete(':id')
+    @Delete(':sampling_plot_id')
     @HttpCode(HttpStatus.OK)
-    remove(@Param('id') id: string, @Request() req) {
+    remove(@Param('sampling_plot_id', ParseIntPipe) id: number, @Request() req) {
         return this.projectsService.remove(id, req.user.user_id);
+    }
+
+    @Patch(':sampling_plot_id/status')
+    async updateStatus(
+        @Param('sampling_plot_id', ParseIntPipe) id: number,
+        @Body() dto: UpdateProjectStatusRequest,
+        @Request() req
+    ) {
+        return this.projectsService.updateStatus(id, req.user.user_id, dto);
     }
 }

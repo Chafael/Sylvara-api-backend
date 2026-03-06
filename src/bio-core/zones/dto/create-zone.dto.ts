@@ -3,7 +3,7 @@ import { IsInt, IsNotEmpty, IsNumber, IsPositive, IsString } from 'class-validat
 export class CreateZoneDto {
     @IsString()
     @IsNotEmpty()
-    name: string;
+    nameStudyZone: string;
 
     @IsNumber()
     @IsPositive()

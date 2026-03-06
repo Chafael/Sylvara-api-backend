@@ -3,7 +3,7 @@ import { IsInt, IsNumber, IsOptional, IsPositive, IsString } from 'class-validat
 export class UpdateZoneDto {
     @IsOptional()
     @IsString()
-    name?: string;
+    nameStudyZone?: string;
 
     @IsOptional()
     @IsNumber()
