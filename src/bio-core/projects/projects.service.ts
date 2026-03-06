@@ -33,15 +33,15 @@ export class ProjectsService {
     async create(dto: CreateProjectDto, userId: number): Promise<ProjectResponseDto> {
         // 1. Guardar en Postgres primero → obtener el ID numérico
         const pgPlot = this.pgPlotRepo.create({
-            user_id: userId,
-            sampling_plot_name: dto.samplingPlotName,
+            userId: userId,
+            samplingPlotName: dto.samplingPlotName,
             description: dto.description ?? null,
-            total_area: dto.totalArea,
-            unit_id: dto.unitId,
+            totalArea: dto.totalArea,
+            unitId: dto.unitId,
             // Si no viene fecha, usamos hoy por defecto
-            start_date: dto.startDate ? new Date(dto.startDate) : new Date(),
-            end_date: dto.endDate ? new Date(dto.endDate) : null,
-            sampling_plot_status: PlotStatus.ACTIVE,
+            startDate: dto.startDate ? new Date(dto.startDate) : new Date(),
+            endDate: dto.endDate ? new Date(dto.endDate) : null,
+            samplingPlotStatus: PlotStatus.ACTIVE,
         });
         const savedPg = await this.pgPlotRepo.save(pgPlot);
 
@@ -53,10 +53,10 @@ export class ProjectsService {
             unitId: dto.unitId,
             unitName: 'Metros',
             userId,
-            postgresId: savedPg.sampling_plot_id,
-            startDate: savedPg.start_date,
+            postgresId: savedPg.samplingPlotId,
+            startDate: savedPg.startDate,
             endDate: dto.endDate ? new Date(dto.endDate) : undefined,
-            currentCycleNumber: savedPg.current_cycle_number,
+            currentCycleNumber: savedPg.currentCycleNumber,
         });
         const savedMongo = await mongoDoc.save();
 
@@ -85,17 +85,17 @@ export class ProjectsService {
         const isValid = await bcrypt.compare(dto.password, user.user_password);
         if (!isValid) throw new UnauthorizedException('La contraseña ingresada para confirmar el cambio de estatus es incorrecta.');
 
-        const pgPlot = await this.pgPlotRepo.findOne({ where: { sampling_plot_id: plotId, user_id: userId } });
+        const pgPlot = await this.pgPlotRepo.findOne({ where: { samplingPlotId: plotId, userId: userId } });
         if (!pgPlot) throw new NotFoundException(`No existe un proyecto con el ID especificado.`);
 
         const newStatus = dto.samplingPlotStatus;
         if (newStatus === PlotStatus.INACTIVE) {
-            pgPlot.end_date = new Date();
-        } else if (newStatus === PlotStatus.ACTIVE && pgPlot.sampling_plot_status === 'inactive') {
-            pgPlot.current_cycle_number += 1;
-            pgPlot.end_date = null;
+            pgPlot.endDate = new Date();
+        } else if (newStatus === PlotStatus.ACTIVE && pgPlot.samplingPlotStatus === 'inactive') {
+            pgPlot.currentCycleNumber += 1;
+            pgPlot.endDate = null;
         }
-        pgPlot.sampling_plot_status = newStatus;
+        pgPlot.samplingPlotStatus = newStatus as any;
 
         const savedPg = await this.pgPlotRepo.save(pgPlot);
 
@@ -104,8 +104,8 @@ export class ProjectsService {
             {
                 $set: {
                     status: newStatus,
-                    endDate: savedPg.end_date,
-                    currentCycleNumber: savedPg.current_cycle_number
+                    endDate: savedPg.endDate,
+                    currentCycleNumber: savedPg.currentCycleNumber
                 }
             },
             { new: true }
@@ -121,7 +121,7 @@ export class ProjectsService {
         const mongoResult = await this.plotModel.findOneAndDelete({ postgresId: plotId, userId }).exec();
         if (!mongoResult) throw new NotFoundException(`Parcela con id ${plotId} no encontrada.`);
 
-        await this.pgPlotRepo.delete({ sampling_plot_id: plotId, user_id: userId });
+        await this.pgPlotRepo.delete({ samplingPlotId: plotId, userId: userId });
 
         return { message: 'Parcela eliminada exitosamente.' };
     }

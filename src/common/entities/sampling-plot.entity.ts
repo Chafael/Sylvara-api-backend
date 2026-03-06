@@ -15,44 +15,45 @@ export enum PlotStatus {
 
 @Entity('sampling_plots')
 export class SamplingPlot {
-    @PrimaryGeneratedColumn()
-    sampling_plot_id: number;
+    @PrimaryGeneratedColumn({ name: 'sampling_plot_id' })
+    samplingPlotId: number;
 
-    @Column({ nullable: false })
-    user_id: number;
+    @Column({ name: 'user_id', nullable: false })
+    userId: number;
 
     @ManyToOne(() => User, { onDelete: 'CASCADE', nullable: false })
     @JoinColumn({ name: 'user_id' })
     user: User;
 
-    @Column({ nullable: false })
-    sampling_plot_name: string;
+    @Column({ name: 'sampling_plot_name', nullable: false })
+    samplingPlotName: string;
 
     @Column({ type: 'text', nullable: true, default: null })
     description: string | null;
 
-    @Column({ type: 'numeric', precision: 10, scale: 2, nullable: false })
-    total_area: number;
+    @Column({ name: 'total_area', type: 'numeric', precision: 10, scale: 2, nullable: false })
+    totalArea: number;
 
-    @Column({ nullable: false })
-    unit_id: number;
+    @Column({ name: 'unit_id', nullable: false })
+    unitId: number;
 
     @ManyToOne(() => UnitMeasurement, { nullable: false })
     @JoinColumn({ name: 'unit_id' })
     unitMeasurement: UnitMeasurement;
 
     @Column({
+        name: 'sampling_plot_status',
         type: 'varchar',
         default: PlotStatus.ACTIVE,
     })
-    sampling_plot_status: PlotStatus;
+    samplingPlotStatus: PlotStatus;
 
-    @Column({ type: 'int', default: 1 })
-    current_cycle_number: number;
+    @Column({ name: 'current_cycle_number', type: 'int', default: 1 })
+    currentCycleNumber: number;
 
-    @Column({ type: 'date', nullable: false, default: () => 'CURRENT_DATE' })
-    start_date: Date;
+    @Column({ name: 'start_date', type: 'date', nullable: false, default: () => 'CURRENT_DATE' })
+    startDate: Date;
 
-    @Column({ type: 'date', nullable: true, default: null })
-    end_date: Date | null;
+    @Column({ name: 'end_date', type: 'date', nullable: true, default: null })
+    endDate: Date | null;
 }

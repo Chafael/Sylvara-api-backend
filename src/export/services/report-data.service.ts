@@ -25,7 +25,7 @@ export class ReportDataService {
     async getReportData(plotId: number, userId: number): Promise<ReportDataResponseDto> {
         // datos del proyecto desde PostgreSQL
         const plot = await this.plotRepo.findOne({
-            where: { sampling_plot_id: plotId, user_id: userId },
+            where: { samplingPlotId: plotId, userId: userId },
         });
         if (!plot) throw new NotFoundException('Parcela no encontrada.');
 
@@ -40,12 +40,12 @@ export class ReportDataService {
             .exec();
 
         return {
-            projectName: plot.sampling_plot_name,
+            projectName: plot.samplingPlotName,
             description: plot.description,
-            totalArea: Number(plot.total_area),
-            status: plot.sampling_plot_status,
-            startDate: plot.start_date,
-            endDate: plot.end_date,
+            totalArea: Number(plot.totalArea),
+            status: plot.samplingPlotStatus,
+            startDate: plot.startDate,
+            endDate: plot.endDate,
 
             researcherName: user.user_name,
             researcherLastname: user.user_lastname,

@@ -9,17 +9,17 @@ import { FunctionalType } from './functional-type.entity';
 
 @Entity('species')
 export class Species {
-    @PrimaryGeneratedColumn()
-    species_id: number;
+    @PrimaryGeneratedColumn({ name: 'species_id' })
+    speciesId: number;
 
-    @Column({ nullable: false })
-    species_name: string;
+    @Column({ name: 'species_name', nullable: false })
+    speciesName: string;
 
-    @Column({ type: 'varchar', length: 512, nullable: true, default: null })
-    species_image_url: string | null;
+    @Column({ name: 'species_image_url', type: 'varchar', length: 512, nullable: true, default: null })
+    speciesImageUrl: string | null;
 
-    @Column({ nullable: false })
-    functional_type_id: number;
+    @Column({ name: 'functional_type_id', nullable: false })
+    functionalTypeId: number;
 
     @ManyToOne(() => FunctionalType, { nullable: false })
     @JoinColumn({ name: 'functional_type_id' })

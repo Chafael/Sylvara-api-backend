@@ -43,7 +43,7 @@ export class ZonesService {
     // verifica que la parcela exista y pertenezca al usuario
     private async verifyPlot(plotId: number, userId: number): Promise<SamplingPlot> {
         const plot = await this.plotRepository.findOne({
-            where: { sampling_plot_id: plotId, user_id: userId },
+            where: { samplingPlotId: plotId, userId: userId },
         });
         if (!plot) throw new NotFoundException(`Parcela ${plotId} no encontrada.`);
         return plot;
@@ -56,8 +56,8 @@ export class ZonesService {
             .leftJoinAndSelect('z.unitMeasurement', 'um')
             .innerJoin('z.samplingPlot', 'sp')
             .where('z.study_zone_id = :zoneId', { zoneId })
-            .andWhere('z.sampling_plot_id = :plotId', { plotId })
-            .andWhere('sp.user_id = :userId', { userId })
+            .andWhere('z.samplingPlotId = :plotId', { plotId })
+            .andWhere('sp.userId = :userId', { userId })
             .getOne();
 
         if (!zone) throw new ForbiddenException(`Zona ${zoneId} no encontrada o sin acceso.`);
@@ -69,31 +69,31 @@ export class ZonesService {
         const zones = await this.zoneRepository
             .createQueryBuilder('z')
             .leftJoinAndSelect('z.unitMeasurement', 'um')
-            .where('z.sampling_plot_id = :plotId', { plotId })
+            .where('z.samplingPlotId = :plotId', { plotId })
             .getMany();
 
         const mongoPlot = await this.mongoPlotModel.findOne({ postgresId: plotId }).exec();
         const globalMetrics = mongoPlot?.globalMetrics;
 
-        return { currentCycle: plot.current_cycle_number, globalMetrics, zones: zones.map(z => this.toResponse(z)) };
+        return { currentCycle: plot.currentCycleNumber, globalMetrics, zones: zones.map(z => this.toResponse(z)) };
     }
 
     async create(plotId: number, userId: number, dto: CreateZoneDto): Promise<ZoneResponseDto> {
         const plot = await this.verifyPlot(plotId, userId);
 
-        const existingZones = await this.zoneRepository.find({ where: { sampling_plot_id: plotId } });
+        const existingZones = await this.zoneRepository.find({ where: { samplingPlotId: plotId } });
         const currentSubAreaSum = existingZones.reduce((sum, z) => sum + Number(z.sub_area), 0);
-        if (currentSubAreaSum + dto.subArea > plot.total_area) {
+        if (currentSubAreaSum + dto.subArea > plot.totalArea) {
             throw new UnprocessableEntityException('La suma de las áreas de estudio excede el área total de la parcela.');
         }
 
         // INSERT en PostgreSQL con el ciclo activo de la parcela
         const zone = this.zoneRepository.create({
-            sampling_plot_id: plotId,
+            samplingPlotId: plotId,
             name_study_zone: dto.nameStudyZone,
             sub_area: dto.subArea,
             unit_id: dto.unitId,
-            cycle_number: plot.current_cycle_number,
+            cycle_number: plot.currentCycleNumber,
         });
         const saved = await this.zoneRepository.save(zone);
 
@@ -116,12 +116,12 @@ export class ZonesService {
         const zone = await this.verifyZone(zoneId, plotId, userId);
 
         if (dto.subArea) {
-            const plot = await this.plotRepository.findOne({ where: { sampling_plot_id: plotId } });
+            const plot = await this.plotRepository.findOne({ where: { samplingPlotId: plotId } });
             if (plot) {
-                const existingZones = await this.zoneRepository.find({ where: { sampling_plot_id: plotId } });
+                const existingZones = await this.zoneRepository.find({ where: { samplingPlotId: plotId } });
                 const currentSubAreaSum = existingZones.reduce((sum, z) =>
                     sum + (z.study_zone_id === zoneId ? 0 : Number(z.sub_area)), 0);
-                if (currentSubAreaSum + dto.subArea > plot.total_area) {
+                if (currentSubAreaSum + dto.subArea > plot.totalArea) {
                     throw new UnprocessableEntityException('La suma de las áreas de estudio excede el área total de la parcela.');
                 }
             }

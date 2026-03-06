@@ -48,9 +48,9 @@ export class SpeciesService {
         return {
             speciesZoneId: sz.species_zone_id,
             speciesId: sz.species_id,
-            speciesName: sz.species?.species_name ?? '',
-            imageUrl: sz.species?.species_image_url ?? null,
-            functionalTypeId: sz.species?.functional_type_id ?? 0,
+            speciesName: sz.species?.speciesName ?? '',
+            imageUrl: sz.species?.speciesImageUrl ?? null,
+            functionalTypeId: sz.species?.functionalTypeId ?? 0,
             functionalTypeName: sz.species?.functionalType?.functional_type_name ?? '',
             individualCount: sz.individual_count,
             heightStratumMin: sz.height_stratum_min !== null ? Number(sz.height_stratum_min) : null,
@@ -66,8 +66,8 @@ export class SpeciesService {
             .createQueryBuilder('z')
             .innerJoin('z.samplingPlot', 'sp')
             .where('z.study_zone_id = :zoneId', { zoneId })
-            .andWhere('z.sampling_plot_id = :plotId', { plotId })
-            .andWhere('sp.user_id = :userId', { userId })
+            .andWhere('z.samplingPlotId = :plotId', { plotId })
+            .andWhere('sp.userId = :userId', { userId })
             .getOne();
         if (!zone) throw new ForbiddenException('Zona no encontrada o sin acceso.');
         return zone;
@@ -115,7 +115,7 @@ export class SpeciesService {
                 .select('sz.species_id', 'speciesId')
                 .addSelect('SUM(sz.individual_count)', 'total')
                 .innerJoin('sz.studyZone', 'z')
-                .where('z.sampling_plot_id = :plotId', { plotId })
+                .where('z.samplingPlotId = :plotId', { plotId })
                 .groupBy('sz.species_id')
                 .getRawMany();
 
@@ -178,8 +178,8 @@ export class SpeciesService {
             .createQueryBuilder('s')
             .innerJoin('species_zone', 'sz', 'sz.species_id = s.species_id')
             .innerJoin('studies_zones', 'z', 'z.study_zone_id = sz.study_zone_id')
-            .where('z.sampling_plot_id = :plotId', { plotId })
-            .andWhere('LOWER(s.species_name) = LOWER(:name)', { name: dto.speciesName })
+            .where('z.samplingPlotId = :plotId', { plotId })
+            .andWhere('LOWER(s.speciesName) = LOWER(:name)', { name: dto.speciesName })
             .getOne();
 
         // Paso 2: si no existe en el catálogo → crearla; si existe → reusar su ID
@@ -187,7 +187,7 @@ export class SpeciesService {
         let isExistingInCatalog = false;
 
         if (existing) {
-            speciesId = existing.species_id;
+            speciesId = existing.speciesId;
             const inZone = await this.speciesZoneRepo.findOne({
                 where: { species_id: speciesId, study_zone_id: zoneId },
             });
@@ -195,12 +195,12 @@ export class SpeciesService {
             isExistingInCatalog = true;
         } else {
             const created = this.speciesRepo.create({
-                species_name: dto.speciesName,
-                functional_type_id: dto.functionalTypeId,
-                species_image_url: dto.imageUrl ?? null,
+                speciesName: dto.speciesName,
+                functionalTypeId: dto.functionalTypeId,
+                speciesImageUrl: dto.imageUrl ?? null,
             });
             const saved = await this.speciesRepo.save(created);
-            speciesId = saved.species_id;
+            speciesId = saved.speciesId;
         }
 
         // registra el vínculo en species_zone con el ciclo activo de la zona
@@ -244,7 +244,7 @@ export class SpeciesService {
 
         // limpia especie huérfana si ya no tiene vínculos en ninguna zona
         const remaining = await this.speciesZoneRepo.count({ where: { species_id: sz.species_id } });
-        if (remaining === 0) await this.speciesRepo.delete({ species_id: sz.species_id });
+        if (remaining === 0) await this.speciesRepo.delete({ speciesId: sz.species_id });
 
         // recalcula índices en Mongo después del borrado
         await this.syncMongoIndices(plotId, zoneId, zone.name_study_zone, userId);
@@ -273,9 +273,9 @@ export class SpeciesService {
             // campos globales → afectan species para todas las zonas del proyecto
             if (dto.speciesName || dto.imageUrl !== undefined || dto.functionalTypeId) {
                 await manager.update(Species, sz.species_id, {
-                    ...(dto.speciesName && { species_name: dto.speciesName }),
-                    ...(dto.imageUrl !== undefined && { species_image_url: dto.imageUrl }),
-                    ...(dto.functionalTypeId && { functional_type_id: dto.functionalTypeId }),
+                    ...(dto.speciesName && { speciesName: dto.speciesName }),
+                    ...(dto.imageUrl !== undefined && { speciesImageUrl: dto.imageUrl }),
+                    ...(dto.functionalTypeId && { functionalTypeId: dto.functionalTypeId }),
                 });
             }
 
@@ -307,24 +307,24 @@ export class SpeciesService {
     async getCatalog(plotId: number, zoneId: number, userId: number): Promise<CatalogItemDto[]> {
         await this.verifyZoneOwnership(zoneId, plotId, userId);
 
-        const plot = await this.plotRepo.findOne({ where: { sampling_plot_id: plotId } });
-        const currentCycle = plot?.current_cycle_number ?? 1;
+        const plot = await this.plotRepo.findOne({ where: { samplingPlotId: plotId } });
+        const currentCycle = plot?.currentCycleNumber ?? 1;
 
         // SUM de individuos por especie en el ciclo activo de toda la parcela
         const rows = await this.speciesZoneRepo
             .createQueryBuilder('sz')
-            .select('s.species_id', 'speciesId')
-            .addSelect('s.species_name', 'speciesName')
-            .addSelect('s.species_image_url', 'imageUrl')
+            .select('s.speciesId', 'speciesId')
+            .addSelect('s.speciesName', 'speciesName')
+            .addSelect('s.speciesImageUrl', 'imageUrl')
             .addSelect('ft.functional_type_name', 'functionalTypeName')
             .addSelect('SUM(sz.individual_count)', 'totalIndividuals')
             .innerJoin('sz.species', 's')
             .innerJoin('s.functionalType', 'ft')
             .innerJoin('sz.studyZone', 'z')
-            .where('z.sampling_plot_id = :plotId', { plotId })
+            .where('z.samplingPlotId = :plotId', { plotId })
             .andWhere('sz.cycle_number = :cycle', { cycle: currentCycle })
-            .groupBy('s.species_id, s.species_name, s.species_image_url, ft.functional_type_name')
-            .orderBy('s.species_id', 'DESC')
+            .groupBy('s.speciesId, s.speciesName, s.speciesImageUrl, ft.functional_type_name')
+            .orderBy('s.speciesId', 'DESC')
             .getRawMany();
 
         return rows.map(r => ({

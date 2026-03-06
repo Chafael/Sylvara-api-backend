@@ -13,8 +13,8 @@ export class StudyZone {
     @PrimaryGeneratedColumn()
     study_zone_id: number;
 
-    @Column({ nullable: false })
-    sampling_plot_id: number;
+    @Column({ name: 'sampling_plot_id', nullable: false })
+    samplingPlotId: number;
 
     @ManyToOne(() => SamplingPlot, { onDelete: 'CASCADE', nullable: false })
     @JoinColumn({ name: 'sampling_plot_id' })
