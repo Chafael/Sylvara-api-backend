@@ -6,34 +6,36 @@ import {
     IsPositive,
     IsString,
     IsUrl,
+    MaxLength,
+    Min,
+    MinLength,
 } from 'class-validator';
 
 export class CreateSpeciesDto {
     @IsString()
     @IsNotEmpty()
+    @MinLength(1)
+    @MaxLength(250)
     speciesName: string;
+
+    @IsOptional()
+    @IsUrl()
+    @MaxLength(512)
+    speciesImageUrl?: string;
 
     @IsInt()
     @IsPositive()
     functionalTypeId: number;
 
-    @IsOptional()
-    @IsUrl()
-    imageUrl?: string;
-
     @IsInt()
-    @IsPositive()
+    @Min(1)
     individualCount: number;
 
-    @IsOptional()
-    @IsNumber()
-    heightMin?: number;
+    @IsNumber({ maxDecimalPlaces: 2 })
+    @Min(0)
+    heightStratumMin: number;
 
-    @IsOptional()
-    @IsNumber()
-    heightMax?: number;
-
-    @IsInt()
-    @IsPositive()
-    unitId: number;
+    @IsNumber({ maxDecimalPlaces: 2 })
+    @Min(0.01)
+    heightStratumMax: number;
 }

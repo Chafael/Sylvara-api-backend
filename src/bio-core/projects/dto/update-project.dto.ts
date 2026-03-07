@@ -1,6 +1,6 @@
 import {
+    IsDateString,
     IsInt,
-    IsNotEmpty,
     IsNumber,
     IsOptional,
     IsPositive,
@@ -10,23 +10,29 @@ import {
     MinLength,
 } from 'class-validator';
 
-export class CreateProjectDto {
+export class UpdateProjectDto {
+    @IsOptional()
     @IsString()
-    @IsNotEmpty()
     @MinLength(1)
     @MaxLength(100)
-    samplingPlotName: string;
+    samplingPlotName?: string;
 
     @IsOptional()
     @IsString()
     @MinLength(1)
     description?: string;
 
+    @IsOptional()
     @IsNumber({ maxDecimalPlaces: 2 })
     @Min(0.01)
-    totalArea: number;
+    totalArea?: number;
 
+    @IsOptional()
     @IsInt()
     @IsPositive()
-    unitId: number;
+    unitId?: number;
+
+    @IsOptional()
+    @IsDateString()
+    startDate?: string;
 }

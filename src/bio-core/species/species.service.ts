@@ -1,8 +1,9 @@
 import {
-    ConflictException,
     ForbiddenException,
+    HttpStatus,
     Injectable,
     NotFoundException,
+    UnprocessableEntityException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
@@ -18,7 +19,11 @@ import { SamplingPlot as MongoPlot, SamplingPlotDocument } from '../projects/sch
 import { CreateSpeciesDto } from './dto/create-species.dto';
 import { UpdateSpeciesDto } from './dto/update-species.dto';
 import { SpeciesZoneResponseDto } from './dto/species-response.dto';
-import { CatalogItemDto } from './dto/catalog-item.dto';
+import { SpeciesCatalogItemDto } from './dto/catalog-item.dto';
+import { SpeciesDuplicateResponseDto } from './dto/species-duplicate-response.dto';
+import { PaginatedSpeciesDto } from './dto/paginated-species.dto';
+
+export const UNIT_METROS_ID = 1;
 
 @Injectable()
 export class SpeciesService {
@@ -39,7 +44,7 @@ export class SpeciesService {
         private readonly mongoPlotModel: Model<SamplingPlotDocument>,
 
         private readonly dataSource: DataSource,
-    ) { }
+    ) {}
 
     // ─── Helpers ────────────────────────────────────────────────────────────
 
@@ -48,12 +53,12 @@ export class SpeciesService {
             speciesZoneId: sz.species_zone_id,
             speciesId: sz.species_id,
             speciesName: sz.species?.species_name ?? '',
-            imageUrl: sz.species?.species_image_url ?? null,
+            speciesImageUrl: sz.species?.species_image_url ?? null,
             functionalTypeId: sz.species?.functional_type_id ?? 0,
             functionalTypeName: sz.species?.functionalType?.functional_type_name ?? '',
             individualCount: sz.individual_count,
-            heightMin: sz.height_stratum_min !== null ? Number(sz.height_stratum_min) : null,
-            heightMax: sz.height_stratum_max !== null ? Number(sz.height_stratum_max) : null,
+            heightStratumMin: sz.height_stratum_min !== null ? Number(sz.height_stratum_min) : null,
+            heightStratumMax: sz.height_stratum_max !== null ? Number(sz.height_stratum_max) : null,
             unitId: sz.unit_id,
             unitName: sz.unitMeasurement?.unit_name ?? '',
             cycleNumber: sz.cycle_number,
@@ -68,8 +73,14 @@ export class SpeciesService {
             .andWhere('z.sampling_plot_id = :plotId', { plotId })
             .andWhere('sp.user_id = :userId', { userId })
             .getOne();
-        if (!zone) throw new ForbiddenException('Zona no encontrada o sin acceso.');
+        if (!zone) throw new NotFoundException('No existe una zona con el ID especificado dentro de este proyecto.');
         return zone;
+    }
+
+    private validateHeightStrata(min: number, max: number): void {
+        if (min >= max) {
+            throw new UnprocessableEntityException('La altura mínima del estrato no puede ser mayor o igual a la altura máxima.');
+        }
     }
 
     // ─── Índices ecológicos ──────────────────────────────────────────────────
@@ -92,7 +103,6 @@ export class SpeciesService {
         };
     }
 
-    // recalcula índices y los empuja al biodiversity_cache de MongoDB
     private async syncMongoIndices(zoneId: number, zoneName: string, userId: number): Promise<void> {
         try {
             const records = await this.speciesZoneRepo.find({ where: { study_zone_id: zoneId } });
@@ -111,32 +121,60 @@ export class SpeciesService {
                 },
             ).exec();
         } catch {
-            // el sync de Mongo es no bloqueante
+            // sync no bloqueante
         }
     }
 
-    // ─── Listar especies de una zona ─────────────────────────────────────────
+    // ─── Listar especies paginadas ───────────────────────────────────────────
 
-    async findAll(zoneId: number, plotId: number, userId: number): Promise<SpeciesZoneResponseDto[]> {
+    async findAll(
+        zoneId: number,
+        plotId: number,
+        userId: number,
+        cursor?: number,
+        limit = 20,
+    ): Promise<PaginatedSpeciesDto<SpeciesZoneResponseDto>> {
         await this.verifyZoneOwnership(zoneId, plotId, userId);
 
-        const records = await this.speciesZoneRepo
+        const take = Math.min(limit, 50);
+
+        const qb = this.speciesZoneRepo
             .createQueryBuilder('sz')
             .leftJoinAndSelect('sz.species', 's')
             .leftJoinAndSelect('s.functionalType', 'ft')
             .leftJoinAndSelect('sz.unitMeasurement', 'um')
             .where('sz.study_zone_id = :zoneId', { zoneId })
-            .getMany();
+            .orderBy('sz.species_zone_id', 'DESC')
+            .take(take);
 
-        return records.map(r => this.toResponse(r));
+        if (cursor) {
+            qb.andWhere('sz.species_zone_id < :cursor', { cursor });
+        }
+
+        const records = await qb.getMany();
+
+        return {
+            data: records.map(r => this.toResponse(r)),
+            meta: {
+                nextCursor: records.length === take ? records[records.length - 1].species_zone_id : null,
+                limit: records.length,
+            },
+        };
     }
 
-    // ─── Crear especie en zona (lógica de 3 pasos) ──────────────────────────
+    // ─── Crear especie ───────────────────────────────────────────────────────
 
-    async create(zoneId: number, plotId: number, userId: number, dto: CreateSpeciesDto): Promise<SpeciesZoneResponseDto> {
+    async create(
+        zoneId: number,
+        plotId: number,
+        userId: number,
+        dto: CreateSpeciesDto,
+    ): Promise<{ status: number; data: SpeciesZoneResponseDto | SpeciesDuplicateResponseDto }> {
         const zone = await this.verifyZoneOwnership(zoneId, plotId, userId);
 
-        // Paso 1: busca si la especie ya existe en cualquier zona del proyecto
+        this.validateHeightStrata(dto.heightStratumMin, dto.heightStratumMax);
+
+        // busca si la especie ya existe en cualquier zona del proyecto
         const existing = await this.speciesRepo
             .createQueryBuilder('s')
             .innerJoin('species_zone', 'sz', 'sz.species_id = s.species_id')
@@ -145,32 +183,73 @@ export class SpeciesService {
             .andWhere('LOWER(s.species_name) = LOWER(:name)', { name: dto.speciesName })
             .getOne();
 
-        // Paso 2: si no existe en el catálogo → crearla; si existe → reusar su ID
-        let speciesId: number;
         if (existing) {
-            speciesId = existing.species_id;
+            // verifica si ya está en esta zona
             const inZone = await this.speciesZoneRepo.findOne({
-                where: { species_id: speciesId, study_zone_id: zoneId },
+                where: { species_id: existing.species_id, study_zone_id: zoneId },
+                relations: ['unitMeasurement'],
             });
-            if (inZone) throw new ConflictException('La especie ya está registrada en esta zona.');
-        } else {
-            const created = this.speciesRepo.create({
-                species_name: dto.speciesName,
-                functional_type_id: dto.functionalTypeId,
-                species_image_url: dto.imageUrl ?? null,
-            });
-            const saved = await this.speciesRepo.save(created);
-            speciesId = saved.species_id;
+
+            if (inZone) {
+                // 409 — ya está en esta zona
+                return {
+                    status: HttpStatus.CONFLICT,
+                    data: {
+                        code: 'SPECIES_EXISTS_IN_ZONE',
+                        message: 'Esta especie ya tiene un registro en esta zona. ¿Deseas modificar sus datos existentes?',
+                        existingRecord: {
+                            speciesZoneId: inZone.species_zone_id,
+                            speciesId: existing.species_id,
+                            speciesName: existing.species_name,
+                            speciesImageUrl: existing.species_image_url ?? null,
+                            functionalTypeId: null,
+                            functionalTypeName: null,
+                            individualCount: inZone.individual_count,
+                            heightStratumMin: inZone.height_stratum_min !== null ? Number(inZone.height_stratum_min) : null,
+                            heightStratumMax: inZone.height_stratum_max !== null ? Number(inZone.height_stratum_max) : null,
+                            unitName: inZone.unitMeasurement?.unit_name ?? null,
+                        },
+                    },
+                };
+            }
+
+            // 200 — existe en catálogo pero no en esta zona
+            return {
+                status: HttpStatus.OK,
+                data: {
+                    code: 'SPECIES_EXISTS_IN_CATALOG',
+                    message: 'Esta especie ya está registrada en otras zonas del proyecto. ¿Deseas usar sus datos existentes?',
+                    existingRecord: {
+                        speciesZoneId: null,
+                        speciesId: existing.species_id,
+                        speciesName: existing.species_name,
+                        speciesImageUrl: existing.species_image_url ?? null,
+                        functionalTypeId: existing.functional_type_id,
+                        functionalTypeName: existing.functionalType?.functional_type_name ?? null,
+                        individualCount: null,
+                        heightStratumMin: null,
+                        heightStratumMax: null,
+                        unitName: null,
+                    },
+                },
+            };
         }
 
-        // registra el vínculo en species_zone con el ciclo activo de la zona
+        // 201 — nueva especie
+        const created = this.speciesRepo.create({
+            species_name: dto.speciesName,
+            functional_type_id: dto.functionalTypeId,
+            species_image_url: dto.speciesImageUrl ?? null,
+        });
+        const savedSpecies = await this.speciesRepo.save(created);
+
         const link = this.speciesZoneRepo.create({
             study_zone_id: zoneId,
-            species_id: speciesId,
+            species_id: savedSpecies.species_id,
             individual_count: dto.individualCount,
-            height_stratum_min: dto.heightMin ?? null,
-            height_stratum_max: dto.heightMax ?? null,
-            unit_id: dto.unitId,
+            height_stratum_min: dto.heightStratumMin,
+            height_stratum_max: dto.heightStratumMax,
+            unit_id: UNIT_METROS_ID,
             cycle_number: zone.cycle_number,
         });
         const savedLink = await this.speciesZoneRepo.save(link);
@@ -180,35 +259,30 @@ export class SpeciesService {
             relations: ['species', 'species.functionalType', 'unitMeasurement'],
         });
 
-        // Paso 3: recalcula Shannon y Simpson y actualiza MongoDB
         await this.syncMongoIndices(zoneId, zone.name_study_zone, userId);
 
-        return this.toResponse(full!);
+        return { status: HttpStatus.CREATED, data: this.toResponse(full!) };
     }
 
-    // ─── Eliminar especie de una zona ────────────────────────────────────────
+    // ─── Eliminar especie ────────────────────────────────────────────────────
 
-    async remove(speciesZoneId: number, zoneId: number, plotId: number, userId: number): Promise<{ message: string }> {
+    async remove(speciesZoneId: number, zoneId: number, plotId: number, userId: number): Promise<void> {
         const zone = await this.verifyZoneOwnership(zoneId, plotId, userId);
 
         const sz = await this.speciesZoneRepo.findOne({
             where: { species_zone_id: speciesZoneId, study_zone_id: zoneId },
         });
-        if (!sz) throw new NotFoundException('Registro de especie no encontrado.');
+        if (!sz) throw new NotFoundException('No existe un registro de especie con el ID especificado en esta zona.');
 
         await this.speciesZoneRepo.delete({ species_zone_id: speciesZoneId });
 
-        // limpia especie huérfana si ya no tiene vínculos en ninguna zona
         const remaining = await this.speciesZoneRepo.count({ where: { species_id: sz.species_id } });
         if (remaining === 0) await this.speciesRepo.delete({ species_id: sz.species_id });
 
-        // recalcula índices en Mongo después del borrado
         await this.syncMongoIndices(zoneId, zone.name_study_zone, userId);
-
-        return { message: 'Especie eliminada de la zona exitosamente.' };
     }
 
-    // ─── Edición inteligente (global y local) con transacción ───────────────
+    // ─── Editar especie ──────────────────────────────────────────────────────
 
     async update(
         speciesZoneId: number,
@@ -222,25 +296,28 @@ export class SpeciesService {
         const sz = await this.speciesZoneRepo.findOne({
             where: { species_zone_id: speciesZoneId, study_zone_id: zoneId },
         });
-        if (!sz) throw new NotFoundException('Registro de especie no encontrado.');
+        if (!sz) throw new NotFoundException('No existe un registro de especie con el ID especificado en esta zona.');
 
-        // TRANSACCIÓN: actualiza datos globales (species) y locales (species_zone) de forma atómica
+        const currentMin = dto.heightStratumMin !== undefined ? dto.heightStratumMin : Number(sz.height_stratum_min);
+        const currentMax = dto.heightStratumMax !== undefined ? dto.heightStratumMax : Number(sz.height_stratum_max);
+        if (dto.heightStratumMin !== undefined || dto.heightStratumMax !== undefined) {
+            this.validateHeightStrata(currentMin, currentMax);
+        }
+
         await this.dataSource.transaction(async (manager) => {
-            // campos globales → afectan species para todas las zonas del proyecto
-            if (dto.speciesName || dto.imageUrl !== undefined || dto.functionalTypeId) {
+            if (dto.speciesName || dto.speciesImageUrl !== undefined || dto.functionalTypeId) {
                 await manager.update(Species, sz.species_id, {
                     ...(dto.speciesName && { species_name: dto.speciesName }),
-                    ...(dto.imageUrl !== undefined && { species_image_url: dto.imageUrl }),
+                    ...(dto.speciesImageUrl !== undefined && { species_image_url: dto.speciesImageUrl }),
                     ...(dto.functionalTypeId && { functional_type_id: dto.functionalTypeId }),
                 });
             }
 
-            // campos locales → solo el registro en species_zone de esta zona
-            if (dto.individualCount || dto.heightMin !== undefined || dto.heightMax !== undefined) {
+            if (dto.individualCount !== undefined || dto.heightStratumMin !== undefined || dto.heightStratumMax !== undefined) {
                 await manager.update(SpeciesZone, speciesZoneId, {
                     ...(dto.individualCount !== undefined && { individual_count: dto.individualCount }),
-                    ...(dto.heightMin !== undefined && { height_stratum_min: dto.heightMin }),
-                    ...(dto.heightMax !== undefined && { height_stratum_max: dto.heightMax }),
+                    ...(dto.heightStratumMin !== undefined && { height_stratum_min: dto.heightStratumMin }),
+                    ...(dto.heightStratumMax !== undefined && { height_stratum_max: dto.heightStratumMax }),
                 });
             }
         });
@@ -250,7 +327,6 @@ export class SpeciesService {
             relations: ['species', 'species.functionalType', 'unitMeasurement'],
         });
 
-        // recalcula índices si cambió el conteo
         if (dto.individualCount !== undefined) {
             await this.syncMongoIndices(zoneId, zone.name_study_zone, userId);
         }
@@ -258,20 +334,26 @@ export class SpeciesService {
         return this.toResponse(full!);
     }
 
-    // ─── Catálogo del proyecto ───────────────────────────────────────────────
+    // ─── Catálogo paginado ───────────────────────────────────────────────────
 
-    async getCatalog(plotId: number, zoneId: number, userId: number): Promise<CatalogItemDto[]> {
+    async getCatalog(
+        plotId: number,
+        zoneId: number,
+        userId: number,
+        cursor?: number,
+        limit = 20,
+    ): Promise<PaginatedSpeciesDto<SpeciesCatalogItemDto>> {
         await this.verifyZoneOwnership(zoneId, plotId, userId);
 
         const plot = await this.plotRepo.findOne({ where: { sampling_plot_id: plotId } });
         const currentCycle = plot?.current_cycle_number ?? 1;
+        const take = Math.min(limit, 50);
 
-        // SUM de individuos por especie en el ciclo activo de toda la parcela
-        const rows = await this.speciesZoneRepo
+        const qb = this.speciesZoneRepo
             .createQueryBuilder('sz')
             .select('s.species_id', 'speciesId')
             .addSelect('s.species_name', 'speciesName')
-            .addSelect('s.species_image_url', 'imageUrl')
+            .addSelect('s.species_image_url', 'speciesImageUrl')
             .addSelect('ft.functional_type_name', 'functionalTypeName')
             .addSelect('SUM(sz.individual_count)', 'totalIndividuals')
             .innerJoin('sz.species', 's')
@@ -281,14 +363,26 @@ export class SpeciesService {
             .andWhere('sz.cycle_number = :cycle', { cycle: currentCycle })
             .groupBy('s.species_id, s.species_name, s.species_image_url, ft.functional_type_name')
             .orderBy('s.species_id', 'DESC')
-            .getRawMany();
+            .limit(take);
 
-        return rows.map(r => ({
-            speciesId: r.speciesId,
-            speciesName: r.speciesName,
-            imageUrl: r.imageUrl ?? null,
-            functionalTypeName: r.functionalTypeName,
-            totalIndividuals: Number(r.totalIndividuals),
-        }));
+        if (cursor) {
+            qb.having('s.species_id < :cursor', { cursor });
+        }
+
+        const rows = await qb.getRawMany();
+
+        return {
+            data: rows.map(r => ({
+                speciesId: r.speciesId,
+                speciesName: r.speciesName,
+                speciesImageUrl: r.speciesImageUrl ?? null,
+                functionalTypeName: r.functionalTypeName,
+                totalIndividuals: Number(r.totalIndividuals),
+            })),
+            meta: {
+                nextCursor: rows.length === take ? rows[rows.length - 1].speciesId : null,
+                limit: rows.length,
+            },
+        };
     }
 }

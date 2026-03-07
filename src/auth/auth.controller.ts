@@ -54,12 +54,6 @@ export class AuthController {
         return this.authService.logout(dto.refreshToken);
     }
 
-    @Get('me')
-    @UseGuards(JwtAuthGuard)
-    getMe(@Request() req: { user: { user_id: number } }) {
-        return this.authService.getMe(req.user.user_id);
-    }
-
     // ─── Google OAuth ────────────────────────────────────────
 
     /** Redirige al usuario a Google para autorizar BigQuery */

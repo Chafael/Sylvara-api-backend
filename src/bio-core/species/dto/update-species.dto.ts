@@ -5,34 +5,40 @@ import {
     IsPositive,
     IsString,
     IsUrl,
+    MaxLength,
+    Min,
+    MinLength,
 } from 'class-validator';
 
 export class UpdateSpeciesDto {
-    // campos globales — actualizan la tabla species para todas las zonas del proyecto
     @IsOptional()
     @IsString()
+    @MinLength(1)
+    @MaxLength(250)
     speciesName?: string;
 
     @IsOptional()
     @IsUrl()
-    imageUrl?: string;
+    @MaxLength(512)
+    speciesImageUrl?: string;
 
     @IsOptional()
     @IsInt()
     @IsPositive()
     functionalTypeId?: number;
 
-    // campos locales — actualizan solo el registro en species_zone
     @IsOptional()
     @IsInt()
-    @IsPositive()
+    @Min(1)
     individualCount?: number;
 
     @IsOptional()
-    @IsNumber()
-    heightMin?: number;
+    @IsNumber({ maxDecimalPlaces: 2 })
+    @Min(0)
+    heightStratumMin?: number;
 
     @IsOptional()
-    @IsNumber()
-    heightMax?: number;
+    @IsNumber({ maxDecimalPlaces: 2 })
+    @Min(0.01)
+    heightStratumMax?: number;
 }

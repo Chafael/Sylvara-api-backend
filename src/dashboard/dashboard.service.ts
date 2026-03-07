@@ -29,9 +29,11 @@ export class DashboardService {
         const s = rows[0] ?? {};
 
         return {
-            summary: {
+            user: {
                 userName: s.user_name ?? '',
-                pictureUrl: s.profile_picture_url ?? null,
+                profilePictureUrl: s.profile_picture_url ?? null,
+            },
+            summary: {
                 totalHistoricalPlots: Number(s.total_historical_plots ?? 0),
                 currentMonthPlots: Number(s.current_month_plots ?? 0),
             },

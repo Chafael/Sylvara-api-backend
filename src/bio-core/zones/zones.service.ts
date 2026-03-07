@@ -2,6 +2,7 @@ import {
     ForbiddenException,
     Injectable,
     NotFoundException,
+    UnprocessableEntityException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -13,7 +14,12 @@ import { SamplingPlot } from '../../common/entities/sampling-plot.entity';
 import { SamplingPlot as MongoSamplingPlot, SamplingPlotDocument } from '../projects/schemas/sampling-plot.schema';
 import { CreateZoneDto } from './dto/create-zone.dto';
 import { UpdateZoneDto } from './dto/update-zone.dto';
-import { ZoneResponseDto } from './dto/zone-response.dto';
+import {
+    ZoneResponseDto,
+    ZonesResponseDto,
+    BiodiversityIndicesDto,
+    BiodiversityCountsDto,
+} from './dto/zone-response.dto';
 
 @Injectable()
 export class ZonesService {
@@ -26,29 +32,37 @@ export class ZonesService {
 
         @InjectModel(MongoSamplingPlot.name)
         private readonly mongoPlotModel: Model<SamplingPlotDocument>,
-    ) { }
+    ) {}
 
-    private toResponse(zone: StudyZone): ZoneResponseDto {
+    private toZoneResponse(zone: StudyZone, mongoZone?: any): ZoneResponseDto {
         return {
-            id: zone.study_zone_id,
-            name: zone.name_study_zone,
+            studyZoneId: zone.study_zone_id,
+            nameStudyZone: zone.name_study_zone,
             subArea: Number(zone.sub_area),
             unitId: zone.unit_id,
             unitName: zone.unitMeasurement?.unit_name ?? '',
             cycleNumber: zone.cycle_number,
+            indices: {
+                shannon: mongoZone?.indices?.shannon ?? 0,
+                simpson: mongoZone?.indices?.simpson ?? 0,
+                margalef: mongoZone?.indices?.margalef ?? 0,
+                pielou: mongoZone?.indices?.pielou ?? 0,
+            },
+            counts: {
+                speciesRichness: mongoZone?.riqueza ?? 0,
+                totalIndividuals: mongoZone?.total_individuos ?? 0,
+            },
         };
     }
 
-    // verifica que la parcela exista y pertenezca al usuario
     private async verifyPlot(plotId: number, userId: number): Promise<SamplingPlot> {
         const plot = await this.plotRepository.findOne({
             where: { sampling_plot_id: plotId, user_id: userId },
         });
-        if (!plot) throw new NotFoundException(`Parcela ${plotId} no encontrada.`);
+        if (!plot) throw new NotFoundException('No existe un proyecto con el ID especificado.');
         return plot;
     }
 
-    // verifica que la zona pertenezca a la parcela del usuario
     private async verifyZone(zoneId: number, plotId: number, userId: number): Promise<StudyZone> {
         const zone = await this.zoneRepository
             .createQueryBuilder('z')
@@ -59,55 +73,105 @@ export class ZonesService {
             .andWhere('sp.user_id = :userId', { userId })
             .getOne();
 
-        if (!zone) throw new ForbiddenException(`Zona ${zoneId} no encontrada o sin acceso.`);
+        if (!zone) throw new NotFoundException('No existe una zona con el ID especificado dentro de este proyecto.');
         return zone;
     }
 
-    async findAll(plotId: number, userId: number): Promise<{ currentCycle: number; zones: ZoneResponseDto[] }> {
+    private async validateSubArea(plotId: number, cycle: number, totalArea: number, newSubArea: number, excludeZoneId?: number): Promise<void> {
+        const qb = this.zoneRepository
+            .createQueryBuilder('z')
+            .select('SUM(z.sub_area)', 'total')
+            .where('z.sampling_plot_id = :plotId', { plotId })
+            .andWhere('z.cycle_number = :cycle', { cycle });
+
+        if (excludeZoneId) {
+            qb.andWhere('z.study_zone_id != :excludeZoneId', { excludeZoneId });
+        }
+
+        const result = await qb.getRawOne();
+        const currentSum = Number(result?.total ?? 0);
+
+        if (currentSum + newSubArea > totalArea) {
+            throw new UnprocessableEntityException('La sub-área ingresada excede el área total disponible de la parcela para el ciclo actual.');
+        }
+    }
+
+    async findAll(plotId: number, userId: number): Promise<ZonesResponseDto> {
         const plot = await this.verifyPlot(plotId, userId);
+
         const zones = await this.zoneRepository
             .createQueryBuilder('z')
             .leftJoinAndSelect('z.unitMeasurement', 'um')
             .where('z.sampling_plot_id = :plotId', { plotId })
+            .andWhere('z.cycle_number = :cycle', { cycle: plot.current_cycle_number })
             .getMany();
-        return { currentCycle: plot.current_cycle_number, zones: zones.map(z => this.toResponse(z)) };
+
+        const mongoDoc = await this.mongoPlotModel
+            .findOne({ userId, _id: { $exists: true } })
+            .lean()
+            .exec();
+
+        const mongoZones: any[] = (mongoDoc as any)?.zonesDetails ?? [];
+
+        const globalIndices: BiodiversityIndicesDto = (mongoDoc as any)?.globalMetrics?.indices ?? { shannon: 0, simpson: 0, margalef: 0, pielou: 0 };
+        const globalCounts: BiodiversityCountsDto = {
+            speciesRichness: (mongoDoc as any)?.globalMetrics?.counts?.riqueza ?? 0,
+            totalIndividuals: (mongoDoc as any)?.globalMetrics?.counts?.total_individuos ?? 0,
+        };
+
+        return {
+            samplingPlotId: plotId,
+            cycleNumber: plot.current_cycle_number,
+            globalMetrics: {
+                indices: globalIndices,
+                counts: globalCounts,
+            },
+            zones: zones.map(z => {
+                const mongoZone = mongoZones.find((mz: any) => mz.zone_name === z.name_study_zone);
+                return this.toZoneResponse(z, mongoZone);
+            }),
+        };
     }
 
     async create(plotId: number, userId: number, dto: CreateZoneDto): Promise<ZoneResponseDto> {
         const plot = await this.verifyPlot(plotId, userId);
 
-        // INSERT en PostgreSQL con el ciclo activo de la parcela
+        await this.validateSubArea(plotId, plot.current_cycle_number, Number(plot.total_area), dto.subArea);
+
         const zone = this.zoneRepository.create({
             sampling_plot_id: plotId,
-            name_study_zone: dto.name,
+            name_study_zone: dto.nameStudyZone,
             sub_area: dto.subArea,
             unit_id: dto.unitId,
             cycle_number: plot.current_cycle_number,
         });
         const saved = await this.zoneRepository.save(zone);
 
-        // recarga con el join a unit_measurement para la respuesta
         const full = await this.zoneRepository.findOne({
             where: { study_zone_id: saved.study_zone_id },
             relations: ['unitMeasurement'],
         });
 
-        // sincroniza el biodiversity_cache en MongoDB
         await this.mongoPlotModel.updateOne(
             { userId, _id: { $exists: true } },
-            { $push: { zonesDetails: { zone_name: dto.name } } },
-        ).exec().catch(() => null); // el sync de Mongo no bloquea si falla
+            { $push: { zonesDetails: { zone_name: dto.nameStudyZone } } },
+        ).exec().catch(() => null);
 
-        return this.toResponse(full!);
+        return this.toZoneResponse(full!);
     }
 
     async update(zoneId: number, plotId: number, userId: number, dto: UpdateZoneDto): Promise<ZoneResponseDto> {
-        await this.verifyZone(zoneId, plotId, userId);
+        const zone = await this.verifyZone(zoneId, plotId, userId);
+        const plot = await this.verifyPlot(plotId, userId);
+
+        if (dto.subArea !== undefined) {
+            await this.validateSubArea(plotId, zone.cycle_number, Number(plot.total_area), dto.subArea, zoneId);
+        }
 
         await this.zoneRepository.update(zoneId, {
-            ...(dto.name && { name_study_zone: dto.name }),
-            ...(dto.subArea && { sub_area: dto.subArea }),
-            ...(dto.unitId && { unit_id: dto.unitId }),
+            ...(dto.nameStudyZone && { name_study_zone: dto.nameStudyZone }),
+            ...(dto.subArea !== undefined && { sub_area: dto.subArea }),
+            ...(dto.unitId !== undefined && { unit_id: dto.unitId }),
         });
 
         const updated = await this.zoneRepository.findOne({
@@ -115,20 +179,21 @@ export class ZonesService {
             relations: ['unitMeasurement'],
         });
 
-        return this.toResponse(updated!);
+        const mongoDoc = await this.mongoPlotModel.findOne({ userId }).lean().exec();
+        const mongoZones: any[] = (mongoDoc as any)?.zonesDetails ?? [];
+        const mongoZone = mongoZones.find((mz: any) => mz.zone_name === updated!.name_study_zone);
+
+        return this.toZoneResponse(updated!, mongoZone);
     }
 
-    async remove(zoneId: number, plotId: number, userId: number): Promise<{ message: string }> {
+    async remove(zoneId: number, plotId: number, userId: number): Promise<void> {
         const zone = await this.verifyZone(zoneId, plotId, userId);
 
         await this.zoneRepository.delete({ study_zone_id: zoneId });
 
-        // elimina la zona del cache de MongoDB
         await this.mongoPlotModel.updateOne(
             { userId },
             { $pull: { zonesDetails: { zone_name: zone.name_study_zone } } },
         ).exec().catch(() => null);
-
-        return { message: 'Zona eliminada exitosamente.' };
     }
 }

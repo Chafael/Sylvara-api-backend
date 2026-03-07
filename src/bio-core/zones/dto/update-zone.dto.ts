@@ -1,12 +1,14 @@
-import { IsInt, IsNumber, IsOptional, IsPositive, IsString } from 'class-validator';
+import { IsInt, IsNumber, IsOptional, IsPositive, IsString, MaxLength, MinLength } from 'class-validator';
 
 export class UpdateZoneDto {
     @IsOptional()
     @IsString()
-    name?: string;
+    @MinLength(1)
+    @MaxLength(250)
+    nameStudyZone?: string;
 
     @IsOptional()
-    @IsNumber()
+    @IsNumber({ maxDecimalPlaces: 2 })
     @IsPositive()
     subArea?: number;
 

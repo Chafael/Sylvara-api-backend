@@ -4,26 +4,31 @@ import {
     IsNotEmpty,
     IsString,
     MinLength,
+    MaxLength,
 } from 'class-validator';
 
 export class RegisterUserDto {
     @IsString()
     @IsNotEmpty()
-    name: string;
+    @MaxLength(100)
+    userName: string;
 
     @IsString()
     @IsNotEmpty()
-    lastname: string;
+    @MaxLength(100)
+    userLastname: string;
 
     @IsDateString()
     @IsNotEmpty()
-    birthday: string;
+    userBirthday: string;
 
     @IsEmail()
     @IsNotEmpty()
-    email: string;
+    @MaxLength(255)
+    userEmail: string;
 
     @IsString()
     @MinLength(8)
-    password: string;
+    @MaxLength(255)
+    userPassword: string;
 }

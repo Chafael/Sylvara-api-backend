@@ -20,7 +20,7 @@ import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 @Controller('projects/:plotId/zones')
 @UseGuards(JwtAuthGuard)
 export class ZonesController {
-    constructor(private readonly zonesService: ZonesService) { }
+    constructor(private readonly zonesService: ZonesService) {}
 
     @Get()
     findAll(
@@ -31,6 +31,7 @@ export class ZonesController {
     }
 
     @Post()
+    @HttpCode(HttpStatus.CREATED)
     create(
         @Param('plotId', ParseIntPipe) plotId: number,
         @Body() dto: CreateZoneDto,
@@ -50,7 +51,7 @@ export class ZonesController {
     }
 
     @Delete(':zoneId')
-    @HttpCode(HttpStatus.OK)
+    @HttpCode(HttpStatus.NO_CONTENT)
     remove(
         @Param('plotId', ParseIntPipe) plotId: number,
         @Param('zoneId', ParseIntPipe) zoneId: number,

@@ -37,7 +37,7 @@ export class ProfileController {
     }
 
     @Delete()
-    @HttpCode(HttpStatus.OK)
+    @HttpCode(HttpStatus.NO_CONTENT)
     deleteProfile(@Request() req) {
         return this.profileService.deleteProfile(req.user.user_id);
     }

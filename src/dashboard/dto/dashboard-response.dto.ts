@@ -8,14 +8,18 @@ export class LatestPlotDto {
     startDate: Date | null;
 }
 
-export class UserSummaryDto {
+export class DashboardUserDto {
     userName: string;
-    pictureUrl: string | null;
+    profilePictureUrl: string | null;
+}
+
+export class DashboardSummaryDto {
     totalHistoricalPlots: number;
     currentMonthPlots: number;
 }
 
 export class DashboardResponseDto {
-    summary: UserSummaryDto;
+    user: DashboardUserDto;
+    summary: DashboardSummaryDto;
     latestPlots: LatestPlotDto[];
 }

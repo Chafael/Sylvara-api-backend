@@ -1,9 +1,9 @@
 export class ProfileResponseDto {
-    id: number;
-    name: string;
-    lastname: string;
-    birthday: Date;
-    email: string;
-    pictureUrl: string | null;
-    role: string;
+    userId: number;
+    userName: string;
+    userLastname: string;
+    userBirthday: Date;
+    userEmail: string;
+    profilePictureUrl: string | null;
+    userRole: string;
 }

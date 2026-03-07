@@ -1,23 +1,29 @@
-import { IsDateString, IsEmail, IsOptional, IsString, IsUrl } from 'class-validator';
+import { IsDateString, IsEmail, IsOptional, IsString, IsUrl, MaxLength, MinLength } from 'class-validator';
 
 export class UpdateProfileDto {
     @IsOptional()
     @IsString()
-    name?: string;
+    @MinLength(1)
+    @MaxLength(100)
+    userName?: string;
 
     @IsOptional()
     @IsString()
-    lastname?: string;
+    @MinLength(1)
+    @MaxLength(100)
+    userLastname?: string;
 
     @IsOptional()
     @IsDateString()
-    birthday?: string;
+    userBirthday?: string;
 
     @IsOptional()
     @IsEmail()
-    email?: string;
+    @MaxLength(255)
+    userEmail?: string;
 
     @IsOptional()
     @IsUrl()
-    pictureUrl?: string;
+    @MaxLength(512)
+    profilePictureUrl?: string;
 }

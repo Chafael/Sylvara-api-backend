@@ -1,11 +1,13 @@
-import { IsInt, IsNotEmpty, IsNumber, IsPositive, IsString } from 'class-validator';
+import { IsInt, IsNotEmpty, IsNumber, IsPositive, IsString, MaxLength, MinLength } from 'class-validator';
 
 export class CreateZoneDto {
     @IsString()
     @IsNotEmpty()
-    name: string;
+    @MinLength(1)
+    @MaxLength(250)
+    nameStudyZone: string;
 
-    @IsNumber()
+    @IsNumber({ maxDecimalPlaces: 2 })
     @IsPositive()
     subArea: number;
 

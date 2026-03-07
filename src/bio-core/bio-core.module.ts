@@ -8,6 +8,8 @@ import { StudyZone } from '../common/entities/study-zone.entity';
 import { Species } from '../common/entities/species.entity';
 import { SpeciesZone } from '../common/entities/species-zone.entity';
 import { FunctionalType } from '../common/entities/functional-type.entity';
+import { UnitMeasurement } from '../common/entities/unit-measurement.entity';
+import { User } from '../auth/entities/user.entity';
 
 import { ProjectsService } from './projects/projects.service';
 import { ProjectsController } from './projects/projects.controller';
@@ -18,13 +20,11 @@ import { SpeciesController } from './species/species.controller';
 
 @Module({
     imports: [
-        // Mongoose — biodiversity cache (MongoDB)
         MongooseModule.forFeature([{ name: MongoSamplingPlot.name, schema: SamplingPlotSchema }]),
-        // TypeORM — estructura principal (PostgreSQL)
-        TypeOrmModule.forFeature([SamplingPlot, StudyZone, Species, SpeciesZone, FunctionalType]),
+        TypeOrmModule.forFeature([SamplingPlot, StudyZone, Species, SpeciesZone, FunctionalType, UnitMeasurement, User]),
     ],
     controllers: [ProjectsController, ZonesController, SpeciesController],
     providers: [ProjectsService, ZonesService, SpeciesService],
     exports: [ProjectsService, ZonesService, SpeciesService],
 })
-export class BioCoreModule { }
+export class BioCoreModule {}

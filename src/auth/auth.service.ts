@@ -12,7 +12,7 @@ import { User } from './entities/user.entity';
 import { RefreshToken } from './entities/refresh-token.entity';
 import { RegisterUserDto } from './dto/register-user.dto';
 import { LoginUserDto } from './dto/login-user.dto';
-import { AuthResponse, AuthUser } from './dto/auth-response.dto';
+import { AuthResponse, AuthUser, RefreshResponse } from './dto/auth-response.dto';
 
 @Injectable()
 export class AuthService {
@@ -30,11 +30,13 @@ export class AuthService {
     // da formato al usuario para la respuesta
     private toAuthUser(user: User): AuthUser {
         return {
-            id: user.user_id,
-            name: user.user_name,
-            lastname: user.user_lastname,
-            email: user.user_email,
-            role: user.user_role ?? 'USER',
+            userId: user.user_id,
+            userName: user.user_name,
+            userLastname: user.user_lastname,
+            userBirthday: user.user_birthday,
+            userEmail: user.user_email,
+            profilePictureUrl: user.profile_picture_url ?? null,
+            userRole: user.user_role ?? 'USER',
         };
     }
 
@@ -66,23 +68,23 @@ export class AuthService {
 
     async register(dto: RegisterUserDto): Promise<AuthResponse> {
         const exists = await this.userRepository.findOne({
-            where: { user_email: dto.email },
+            where: { user_email: dto.userEmail },
         });
 
         if (exists) {
             throw new ConflictException('El correo electrónico ya está registrado.');
         }
 
-        const hashedPassword = await bcrypt.hash(dto.password, 10);
+        const hashedPassword = await bcrypt.hash(dto.userPassword, 10);
 
         // TRANSACCIÓN: crear usuario y guardar sesión (doble INSERT)
         return this.dataSource.transaction(async (manager) => {
 
             const user = manager.create(User, {
-                user_name: dto.name,
-                user_lastname: dto.lastname,
-                user_birthday: new Date(dto.birthday),
-                user_email: dto.email,
+                user_name: dto.userName,
+                user_lastname: dto.userLastname,
+                user_birthday: new Date(dto.userBirthday),
+                user_email: dto.userEmail,
                 user_password: hashedPassword,
             });
 
@@ -98,16 +100,16 @@ export class AuthService {
 
     async login(dto: LoginUserDto): Promise<AuthResponse> {
         // se pide el password porque por defecto no se incluye
-        const user = await this.userRepository.findOne({
-            where: { user_email: dto.email },
-            select: ['user_id', 'user_name', 'user_lastname', 'user_email', 'user_password', 'user_role'],
-        });
+            const user = await this.userRepository.findOne({
+                where: { user_email: dto.userEmail },
+                select: ['user_id', 'user_name', 'user_lastname', 'user_birthday', 'user_email', 'user_password', 'user_role', 'profile_picture_url'],
+            });
 
         if (!user) {
             throw new UnauthorizedException('Credenciales inválidas.');
         }
 
-        const isValid = await bcrypt.compare(dto.password, user.user_password);
+        const isValid = await bcrypt.compare(dto.userPassword, user.user_password);
         if (!isValid) {
             throw new UnauthorizedException('Credenciales inválidas.');
         }
@@ -128,7 +130,7 @@ export class AuthService {
         return { accessToken, refreshToken, user: this.toAuthUser(user) };
     }
 
-    async refresh(refreshToken: string): Promise<AuthResponse> {
+    async refresh(refreshToken: string): Promise<RefreshResponse> {
         let payload: { sub: number; email: string; role: string };
 
         try {
@@ -162,7 +164,7 @@ export class AuthService {
             await this.saveRefreshToken(user.user_id, tokens.refreshToken, manager);
         });
 
-        return { ...tokens, user: this.toAuthUser(user) };
+        return { accessToken: tokens.accessToken, refreshToken: tokens.refreshToken };
 
     }
 
