@@ -1,8 +1,6 @@
 import { Module } from '@nestjs/common';
-import { MongooseModule } from '@nestjs/mongoose';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
-import { SamplingPlot as MongoSamplingPlot, SamplingPlotSchema } from './projects/schemas/sampling-plot.schema';
 import { SamplingPlot } from '../common/entities/sampling-plot.entity';
 import { StudyZone } from '../common/entities/study-zone.entity';
 import { Species } from '../common/entities/species.entity';
@@ -20,7 +18,6 @@ import { SpeciesController } from './species/species.controller';
 
 @Module({
     imports: [
-        MongooseModule.forFeature([{ name: MongoSamplingPlot.name, schema: SamplingPlotSchema }]),
         TypeOrmModule.forFeature([SamplingPlot, StudyZone, Species, SpeciesZone, FunctionalType, UnitMeasurement, User]),
     ],
     controllers: [ProjectsController, ZonesController, SpeciesController],

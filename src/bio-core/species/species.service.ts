@@ -1,5 +1,3 @@
-// src/bio-core/species/species.service.ts
-
 import {
     HttpStatus,
     Injectable,
@@ -8,14 +6,11 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
-import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
 
 import { Species } from '../../common/entities/species.entity';
 import { SpeciesZone } from '../../common/entities/species-zone.entity';
 import { StudyZone } from '../../common/entities/study-zone.entity';
 import { SamplingPlot } from '../../common/entities/sampling-plot.entity';
-import { BiodiversityCache, BiodiversityCacheDocument } from '../projects/schemas/biodiversity-cache.schema';
 
 import { CreateSpeciesDto } from './dto/create-species.dto';
 import { UpdateSpeciesDto } from './dto/update-species.dto';
@@ -41,13 +36,8 @@ export class SpeciesService {
         @InjectRepository(SamplingPlot)
         private readonly plotRepo: Repository<SamplingPlot>,
 
-        @InjectModel(BiodiversityCache.name)
-        private readonly biodiversityCacheModel: Model<BiodiversityCacheDocument>,
-
         private readonly dataSource: DataSource,
     ) {}
-
-    // ─── Helpers ────────────────────────────────────────────────────────────
 
     private toResponse(sz: SpeciesZone): SpeciesZoneResponseDto {
         return {
@@ -86,63 +76,6 @@ export class SpeciesService {
         }
     }
 
-    // ─── Índices ecológicos ──────────────────────────────────────────────────
-
-    private calcIndices(counts: number[]): { shannon: number; simpson: number } {
-        const N = counts.reduce((a, b) => a + b, 0);
-        if (N === 0) return { shannon: 0, simpson: 0 };
-
-        let shannon = 0;
-        let simpsonNum = 0;
-        for (const ni of counts) {
-            if (ni === 0) continue;
-            const pi = ni / N;
-            shannon -= pi * Math.log(pi);
-            simpsonNum += ni * (ni - 1);
-        }
-        return {
-            shannon: parseFloat(shannon.toFixed(4)),
-            simpson: parseFloat((N > 1 ? simpsonNum / (N * (N - 1)) : 0).toFixed(4)),
-        };
-    }
-
-    private async syncMongoIndices(
-        zoneId: number,
-        plotId: number,
-        cycleNumber: number,
-    ): Promise<void> {
-        try {
-            const records = await this.speciesZoneRepo.find({
-                where: { study_zone_id: zoneId },
-            });
-            const counts = records.map(r => r.individual_count);
-            const { shannon, simpson } = this.calcIndices(counts);
-
-            await this.biodiversityCacheModel
-                .updateOne(
-                    {
-                        sampling_plot_id: plotId,
-                        cycle_number: cycleNumber,
-                        'zonesDetails.study_zone_id': zoneId,
-                    },
-                    {
-                        $set: {
-                            'zonesDetails.$.indices.shannon': shannon,
-                            'zonesDetails.$.indices.simpson': simpson,
-                            'zonesDetails.$.counts.species_richness': records.length,
-                            'zonesDetails.$.counts.total_individuals': counts.reduce((a, b) => a + b, 0),
-                            lastUpdated: new Date(),
-                        },
-                    },
-                )
-                .exec();
-        } catch {
-            // sync no bloqueante
-        }
-    }
-
-    // ─── Listar especies paginadas ───────────────────────────────────────────
-
     async findAll(
         zoneId: number,
         plotId: number,
@@ -177,8 +110,6 @@ export class SpeciesService {
             },
         };
     }
-
-    // ─── Crear especie ───────────────────────────────────────────────────────
 
     async create(
         zoneId: number,
@@ -247,7 +178,6 @@ export class SpeciesService {
             };
         }
 
-        // 201 — nueva especie
         const created = this.speciesRepo.create({
             species_name: dto.speciesName,
             functional_type_id: dto.functionalTypeId,
@@ -271,12 +201,8 @@ export class SpeciesService {
             relations: ['species', 'species.functionalType', 'unitMeasurement'],
         });
 
-        await this.syncMongoIndices(zoneId, plotId, zone.cycle_number);
-
         return { status: HttpStatus.CREATED, data: this.toResponse(full!) };
     }
-
-    // ─── Eliminar especie ────────────────────────────────────────────────────
 
     async remove(
         speciesZoneId: number,
@@ -284,7 +210,7 @@ export class SpeciesService {
         plotId: number,
         userId: number,
     ): Promise<void> {
-        const zone = await this.verifyZoneOwnership(zoneId, plotId, userId);
+        await this.verifyZoneOwnership(zoneId, plotId, userId);
 
         const sz = await this.speciesZoneRepo.findOne({
             where: { species_zone_id: speciesZoneId, study_zone_id: zoneId },
@@ -297,11 +223,7 @@ export class SpeciesService {
             where: { species_id: sz.species_id },
         });
         if (remaining === 0) await this.speciesRepo.delete({ species_id: sz.species_id });
-
-        await this.syncMongoIndices(zoneId, plotId, zone.cycle_number);
     }
-
-    // ─── Editar especie ──────────────────────────────────────────────────────
 
     async update(
         speciesZoneId: number,
@@ -310,19 +232,15 @@ export class SpeciesService {
         userId: number,
         dto: UpdateSpeciesDto,
     ): Promise<SpeciesZoneResponseDto> {
-        const zone = await this.verifyZoneOwnership(zoneId, plotId, userId);
+        await this.verifyZoneOwnership(zoneId, plotId, userId);
 
         const sz = await this.speciesZoneRepo.findOne({
             where: { species_zone_id: speciesZoneId, study_zone_id: zoneId },
         });
         if (!sz) throw new NotFoundException('No existe un registro de especie con el ID especificado en esta zona.');
 
-        const currentMin = dto.heightStratumMin !== undefined
-            ? dto.heightStratumMin
-            : Number(sz.height_stratum_min);
-        const currentMax = dto.heightStratumMax !== undefined
-            ? dto.heightStratumMax
-            : Number(sz.height_stratum_max);
+        const currentMin = dto.heightStratumMin !== undefined ? dto.heightStratumMin : Number(sz.height_stratum_min);
+        const currentMax = dto.heightStratumMax !== undefined ? dto.heightStratumMax : Number(sz.height_stratum_max);
 
         if (dto.heightStratumMin !== undefined || dto.heightStratumMax !== undefined) {
             this.validateHeightStrata(currentMin, currentMax);
@@ -355,14 +273,8 @@ export class SpeciesService {
             relations: ['species', 'species.functionalType', 'unitMeasurement'],
         });
 
-        if (dto.individualCount !== undefined) {
-            await this.syncMongoIndices(zoneId, plotId, zone.cycle_number);
-        }
-
         return this.toResponse(full!);
     }
-
-    // ─── Catálogo paginado ───────────────────────────────────────────────────
 
     async getCatalog(
         plotId: number,

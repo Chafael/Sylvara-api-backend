@@ -5,12 +5,10 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
 
 import { StudyZone } from '../../common/entities/study-zone.entity';
 import { SamplingPlot } from '../../common/entities/sampling-plot.entity';
-import { BiodiversityCache, BiodiversityCacheDocument } from '../projects/schemas/biodiversity-cache.schema';
+import { SpeciesZone } from '../../common/entities/species-zone.entity';
 import { CreateZoneDto } from './dto/create-zone.dto';
 import { UpdateZoneDto } from './dto/update-zone.dto';
 import {
@@ -29,11 +27,44 @@ export class ZonesService {
         @InjectRepository(SamplingPlot)
         private readonly plotRepository: Repository<SamplingPlot>,
 
-        @InjectModel(BiodiversityCache.name)
-        private readonly biodiversityCacheModel: Model<BiodiversityCacheDocument>,
+        @InjectRepository(SpeciesZone)
+        private readonly speciesZoneRepository: Repository<SpeciesZone>,
     ) {}
 
-    private toZoneResponse(zone: StudyZone, mongoZone?: any): ZoneResponseDto {
+    private computeIndices(speciesZones: SpeciesZone[]): { indices: BiodiversityIndicesDto; counts: BiodiversityCountsDto } {
+        const totalIndividuals = speciesZones.reduce((sum, sz) => sum + sz.individual_count, 0);
+        const speciesRichness = speciesZones.length;
+
+        const shannon = speciesZones.reduce((sum, sz) => {
+            const p = sz.individual_count / (totalIndividuals || 1);
+            return sum + (p > 0 ? -p * Math.log(p) : 0);
+        }, 0);
+
+        const simpson = totalIndividuals > 1
+            ? 1 - speciesZones.reduce((sum, sz) =>
+                sum + (sz.individual_count * (sz.individual_count - 1)), 0
+            ) / (totalIndividuals * (totalIndividuals - 1))
+            : 0;
+
+        const margalef = totalIndividuals > 1
+            ? (speciesRichness - 1) / Math.log(totalIndividuals)
+            : 0;
+
+        const pielou = speciesRichness > 1 ? shannon / Math.log(speciesRichness) : 0;
+
+        return {
+            indices: { shannon, simpson, margalef, pielou },
+            counts: { speciesRichness, totalIndividuals },
+        };
+    }
+
+    private async toZoneResponse(zone: StudyZone): Promise<ZoneResponseDto> {
+        const speciesZones = await this.speciesZoneRepository.find({
+            where: { study_zone_id: zone.study_zone_id },
+        });
+
+        const { indices, counts } = this.computeIndices(speciesZones);
+
         return {
             studyZoneId: zone.study_zone_id,
             nameStudyZone: zone.name_study_zone,
@@ -41,16 +72,8 @@ export class ZonesService {
             unitId: zone.unit_id,
             unitName: zone.unitMeasurement?.unit_name ?? '',
             cycleNumber: zone.cycle_number,
-            indices: {
-                shannon: mongoZone?.indices?.shannon ?? 0,
-                simpson: mongoZone?.indices?.simpson ?? 0,
-                margalef: mongoZone?.indices?.margalef ?? 0,
-                pielou: mongoZone?.indices?.pielou ?? 0,
-            },
-            counts: {
-                speciesRichness: mongoZone?.counts?.species_richness ?? 0,
-                totalIndividuals: mongoZone?.counts?.total_individuals ?? 0,
-            },
+            indices,
+            counts,
         };
     }
 
@@ -113,27 +136,19 @@ export class ZonesService {
             .andWhere('z.cycle_number = :cycle', { cycle: plot.current_cycle_number })
             .getMany();
 
-        const cacheDoc = await this.biodiversityCacheModel
-            .findOne({
-                sampling_plot_id: plotId,
-                cycle_number: plot.current_cycle_number,
-            })
-            .lean()
-            .exec();
+        const zonesResponses = await Promise.all(zones.map(z => this.toZoneResponse(z)));
 
-        const mongoZones: any[] = cacheDoc?.zonesDetails ?? [];
+        // métricas globales agregando todas las especies del plot en el ciclo actual
+        const allZoneIds = zones.map(z => z.study_zone_id);
+        const allSpeciesZones = allZoneIds.length > 0
+            ? await this.speciesZoneRepository
+                .createQueryBuilder('sz')
+                .where('sz.study_zone_id IN (:...ids)', { ids: allZoneIds })
+                .andWhere('sz.cycle_number = :cycle', { cycle: plot.current_cycle_number })
+                .getMany()
+            : [];
 
-        const globalIndices: BiodiversityIndicesDto = cacheDoc?.globalMetrics?.indices ?? {
-            shannon: 0,
-            simpson: 0,
-            margalef: 0,
-            pielou: 0,
-        };
-
-        const globalCounts: BiodiversityCountsDto = {
-            speciesRichness: cacheDoc?.globalMetrics?.counts?.species_richness ?? 0,
-            totalIndividuals: cacheDoc?.globalMetrics?.counts?.total_individuals ?? 0,
-        };
+        const { indices: globalIndices, counts: globalCounts } = this.computeIndices(allSpeciesZones);
 
         return {
             samplingPlotId: plotId,
@@ -142,12 +157,7 @@ export class ZonesService {
                 indices: globalIndices,
                 counts: globalCounts,
             },
-            zones: zones.map(z => {
-                const mongoZone = mongoZones.find(
-                    (mz: any) => mz.name_study_zone === z.name_study_zone,
-                );
-                return this.toZoneResponse(z, mongoZone);
-            }),
+            zones: zonesResponses,
         };
     }
 
@@ -174,31 +184,6 @@ export class ZonesService {
             where: { study_zone_id: saved.study_zone_id },
             relations: ['unitMeasurement'],
         });
-
-        await this.biodiversityCacheModel
-            .updateOne(
-                {
-                    sampling_plot_id: plotId,
-                    cycle_number: plot.current_cycle_number,
-                },
-                {
-                    $push: {
-                        zonesDetails: {
-                            study_zone_id: saved.study_zone_id,
-                            name_study_zone: dto.nameStudyZone,
-                            indices: { shannon: 0, simpson: 0, margalef: 0, pielou: 0 },
-                            counts: { species_richness: 0, total_individuals: 0 },
-                        },
-                    },
-                    $setOnInsert: {
-                        sampling_plot_id: plotId,
-                        cycle_number: plot.current_cycle_number,
-                    },
-                },
-                { upsert: true },
-            )
-            .exec()
-            .catch(() => null);
 
         return this.toZoneResponse(full!);
     }
@@ -233,54 +218,11 @@ export class ZonesService {
             relations: ['unitMeasurement'],
         });
 
-        // si se renombró la zona, actualizar el nombre en MongoDB también
-        if (dto.nameStudyZone && dto.nameStudyZone !== zone.name_study_zone) {
-            await this.biodiversityCacheModel
-                .updateOne(
-                    {
-                        sampling_plot_id: plotId,
-                        cycle_number: zone.cycle_number,
-                        'zonesDetails.study_zone_id': zoneId,
-                    },
-                    {
-                        $set: { 'zonesDetails.$.name_study_zone': dto.nameStudyZone },
-                    },
-                )
-                .exec()
-                .catch(() => null);
-        }
-
-        const cacheDoc = await this.biodiversityCacheModel
-            .findOne({
-                sampling_plot_id: plotId,
-                cycle_number: zone.cycle_number,
-            })
-            .lean()
-            .exec();
-
-        const mongoZone = (cacheDoc?.zonesDetails ?? []).find(
-            (mz: any) => mz.study_zone_id === zoneId,
-        );
-
-        return this.toZoneResponse(updated!, mongoZone);
+        return this.toZoneResponse(updated!);
     }
 
     async remove(zoneId: number, plotId: number, userId: number): Promise<void> {
-        const zone = await this.verifyZone(zoneId, plotId, userId);
-
+        await this.verifyZone(zoneId, plotId, userId);
         await this.zoneRepository.delete({ study_zone_id: zoneId });
-
-        await this.biodiversityCacheModel
-            .updateOne(
-                {
-                    sampling_plot_id: plotId,
-                    cycle_number: zone.cycle_number,
-                },
-                {
-                    $pull: { zonesDetails: { study_zone_id: zoneId } },
-                },
-            )
-            .exec()
-            .catch(() => null);
     }
 }
