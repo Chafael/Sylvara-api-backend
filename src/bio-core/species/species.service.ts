@@ -1,5 +1,6 @@
+// src/bio-core/species/species.service.ts
+
 import {
-    ForbiddenException,
     HttpStatus,
     Injectable,
     NotFoundException,
@@ -14,7 +15,7 @@ import { Species } from '../../common/entities/species.entity';
 import { SpeciesZone } from '../../common/entities/species-zone.entity';
 import { StudyZone } from '../../common/entities/study-zone.entity';
 import { SamplingPlot } from '../../common/entities/sampling-plot.entity';
-import { SamplingPlot as MongoPlot, SamplingPlotDocument } from '../projects/schemas/sampling-plot.schema';
+import { BiodiversityCache, BiodiversityCacheDocument } from '../projects/schemas/biodiversity-cache.schema';
 
 import { CreateSpeciesDto } from './dto/create-species.dto';
 import { UpdateSpeciesDto } from './dto/update-species.dto';
@@ -40,8 +41,8 @@ export class SpeciesService {
         @InjectRepository(SamplingPlot)
         private readonly plotRepo: Repository<SamplingPlot>,
 
-        @InjectModel(MongoPlot.name)
-        private readonly mongoPlotModel: Model<SamplingPlotDocument>,
+        @InjectModel(BiodiversityCache.name)
+        private readonly biodiversityCacheModel: Model<BiodiversityCacheDocument>,
 
         private readonly dataSource: DataSource,
     ) {}
@@ -79,7 +80,9 @@ export class SpeciesService {
 
     private validateHeightStrata(min: number, max: number): void {
         if (min >= max) {
-            throw new UnprocessableEntityException('La altura mínima del estrato no puede ser mayor o igual a la altura máxima.');
+            throw new UnprocessableEntityException(
+                'La altura mínima del estrato no puede ser mayor o igual a la altura máxima.',
+            );
         }
     }
 
@@ -103,23 +106,36 @@ export class SpeciesService {
         };
     }
 
-    private async syncMongoIndices(zoneId: number, zoneName: string, userId: number): Promise<void> {
+    private async syncMongoIndices(
+        zoneId: number,
+        plotId: number,
+        cycleNumber: number,
+    ): Promise<void> {
         try {
-            const records = await this.speciesZoneRepo.find({ where: { study_zone_id: zoneId } });
+            const records = await this.speciesZoneRepo.find({
+                where: { study_zone_id: zoneId },
+            });
             const counts = records.map(r => r.individual_count);
             const { shannon, simpson } = this.calcIndices(counts);
 
-            await this.mongoPlotModel.updateOne(
-                { userId, 'zonesDetails.zone_name': zoneName },
-                {
-                    $set: {
-                        'zonesDetails.$.indices.shannon': shannon,
-                        'zonesDetails.$.indices.simpson': simpson,
-                        'zonesDetails.$.total_individuos': counts.reduce((a, b) => a + b, 0),
-                        'zonesDetails.$.riqueza': records.length,
+            await this.biodiversityCacheModel
+                .updateOne(
+                    {
+                        sampling_plot_id: plotId,
+                        cycle_number: cycleNumber,
+                        'zonesDetails.study_zone_id': zoneId,
                     },
-                },
-            ).exec();
+                    {
+                        $set: {
+                            'zonesDetails.$.indices.shannon': shannon,
+                            'zonesDetails.$.indices.simpson': simpson,
+                            'zonesDetails.$.counts.species_richness': records.length,
+                            'zonesDetails.$.counts.total_individuals': counts.reduce((a, b) => a + b, 0),
+                            lastUpdated: new Date(),
+                        },
+                    },
+                )
+                .exec();
         } catch {
             // sync no bloqueante
         }
@@ -174,7 +190,6 @@ export class SpeciesService {
 
         this.validateHeightStrata(dto.heightStratumMin, dto.heightStratumMax);
 
-        // busca si la especie ya existe en cualquier zona del proyecto
         const existing = await this.speciesRepo
             .createQueryBuilder('s')
             .innerJoin('species_zone', 'sz', 'sz.species_id = s.species_id')
@@ -184,14 +199,12 @@ export class SpeciesService {
             .getOne();
 
         if (existing) {
-            // verifica si ya está en esta zona
             const inZone = await this.speciesZoneRepo.findOne({
                 where: { species_id: existing.species_id, study_zone_id: zoneId },
                 relations: ['unitMeasurement'],
             });
 
             if (inZone) {
-                // 409 — ya está en esta zona
                 return {
                     status: HttpStatus.CONFLICT,
                     data: {
@@ -213,7 +226,6 @@ export class SpeciesService {
                 };
             }
 
-            // 200 — existe en catálogo pero no en esta zona
             return {
                 status: HttpStatus.OK,
                 data: {
@@ -259,14 +271,19 @@ export class SpeciesService {
             relations: ['species', 'species.functionalType', 'unitMeasurement'],
         });
 
-        await this.syncMongoIndices(zoneId, zone.name_study_zone, userId);
+        await this.syncMongoIndices(zoneId, plotId, zone.cycle_number);
 
         return { status: HttpStatus.CREATED, data: this.toResponse(full!) };
     }
 
     // ─── Eliminar especie ────────────────────────────────────────────────────
 
-    async remove(speciesZoneId: number, zoneId: number, plotId: number, userId: number): Promise<void> {
+    async remove(
+        speciesZoneId: number,
+        zoneId: number,
+        plotId: number,
+        userId: number,
+    ): Promise<void> {
         const zone = await this.verifyZoneOwnership(zoneId, plotId, userId);
 
         const sz = await this.speciesZoneRepo.findOne({
@@ -276,10 +293,12 @@ export class SpeciesService {
 
         await this.speciesZoneRepo.delete({ species_zone_id: speciesZoneId });
 
-        const remaining = await this.speciesZoneRepo.count({ where: { species_id: sz.species_id } });
+        const remaining = await this.speciesZoneRepo.count({
+            where: { species_id: sz.species_id },
+        });
         if (remaining === 0) await this.speciesRepo.delete({ species_id: sz.species_id });
 
-        await this.syncMongoIndices(zoneId, zone.name_study_zone, userId);
+        await this.syncMongoIndices(zoneId, plotId, zone.cycle_number);
     }
 
     // ─── Editar especie ──────────────────────────────────────────────────────
@@ -298,8 +317,13 @@ export class SpeciesService {
         });
         if (!sz) throw new NotFoundException('No existe un registro de especie con el ID especificado en esta zona.');
 
-        const currentMin = dto.heightStratumMin !== undefined ? dto.heightStratumMin : Number(sz.height_stratum_min);
-        const currentMax = dto.heightStratumMax !== undefined ? dto.heightStratumMax : Number(sz.height_stratum_max);
+        const currentMin = dto.heightStratumMin !== undefined
+            ? dto.heightStratumMin
+            : Number(sz.height_stratum_min);
+        const currentMax = dto.heightStratumMax !== undefined
+            ? dto.heightStratumMax
+            : Number(sz.height_stratum_max);
+
         if (dto.heightStratumMin !== undefined || dto.heightStratumMax !== undefined) {
             this.validateHeightStrata(currentMin, currentMax);
         }
@@ -313,7 +337,11 @@ export class SpeciesService {
                 });
             }
 
-            if (dto.individualCount !== undefined || dto.heightStratumMin !== undefined || dto.heightStratumMax !== undefined) {
+            if (
+                dto.individualCount !== undefined ||
+                dto.heightStratumMin !== undefined ||
+                dto.heightStratumMax !== undefined
+            ) {
                 await manager.update(SpeciesZone, speciesZoneId, {
                     ...(dto.individualCount !== undefined && { individual_count: dto.individualCount }),
                     ...(dto.heightStratumMin !== undefined && { height_stratum_min: dto.heightStratumMin }),
@@ -328,7 +356,7 @@ export class SpeciesService {
         });
 
         if (dto.individualCount !== undefined) {
-            await this.syncMongoIndices(zoneId, zone.name_study_zone, userId);
+            await this.syncMongoIndices(zoneId, plotId, zone.cycle_number);
         }
 
         return this.toResponse(full!);
