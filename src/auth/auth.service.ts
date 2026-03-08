@@ -106,12 +106,12 @@ export class AuthService {
             });
 
         if (!user) {
-            throw new UnauthorizedException('Credenciales inválidas.');
+            throw new UnauthorizedException('El corrreo y/o la contraseño son incorrectas.');
         }
 
         const isValid = await bcrypt.compare(dto.userPassword, user.user_password);
         if (!isValid) {
-            throw new UnauthorizedException('Credenciales inválidas.');
+            throw new UnauthorizedException('El corrreo y/o la contraseño son incorrectas.');
         }
 
         const { accessToken, refreshToken } = this.signTokens(user);
