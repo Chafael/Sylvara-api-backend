@@ -1,6 +1,7 @@
 // src/bio-core/species/species.service.ts
 
 import {
+    ConflictException,
     HttpStatus,
     Injectable,
     NotFoundException,
@@ -39,7 +40,7 @@ export class SpeciesService {
         private readonly plotRepo: Repository<SamplingPlot>,
 
         private readonly dataSource: DataSource,
-    ) {}
+    ) { }
 
     private toResponse(sz: SpeciesZone): SpeciesZoneResponseDto {
         return {
@@ -125,74 +126,34 @@ export class SpeciesService {
 
         const existing = await this.speciesRepo
             .createQueryBuilder('s')
-            .innerJoin('species_zone', 'sz', 'sz.species_id = s.species_id')
-            .innerJoin('studies_zones', 'z', 'z.study_zone_id = sz.study_zone_id')
-            .where('z.sampling_plot_id = :plotId', { plotId })
-            .andWhere('LOWER(s.species_name) = LOWER(:name)', { name: dto.speciesName })
+            .where('LOWER(s.species_name) = LOWER(:name)', { name: dto.speciesName })
             .getOne();
 
+        let speciesId: number;
+
         if (existing) {
+            speciesId = existing.species_id;
             const inZone = await this.speciesZoneRepo.findOne({
-                where: { species_id: existing.species_id, study_zone_id: zoneId },
-                relations: ['unitMeasurement'],
+                where: { species_id: speciesId, study_zone_id: zoneId },
             });
-
-            if (inZone) {
-                return {
-                    status: HttpStatus.CONFLICT,
-                    data: {
-                        code: 'SPECIES_EXISTS_IN_ZONE',
-                        message: 'Esta especie ya tiene un registro en esta zona. ¿Deseas modificar sus datos existentes?',
-                        existingRecord: {
-                            speciesZoneId: inZone.species_zone_id,
-                            speciesId: existing.species_id,
-                            speciesName: existing.species_name,
-                            speciesImageUrl: existing.species_image_url ?? null,
-                            functionalTypeId: null,
-                            functionalTypeName: null,
-                            individualCount: inZone.individual_count,
-                            heightStratumMin: inZone.height_stratum_min !== null ? Number(inZone.height_stratum_min) : null,
-                            heightStratumMax: inZone.height_stratum_max !== null ? Number(inZone.height_stratum_max) : null,
-                            unitName: inZone.unitMeasurement?.unit_name ?? null,
-                        },
-                    },
-                };
-            }
-
-            // Existe en catálogo pero NO en esta zona → crear el vínculo directamente
-            const link = this.speciesZoneRepo.create({
-                study_zone_id: zoneId,
-                species_id: existing.species_id,
-                individual_count: dto.individualCount,
-                height_stratum_min: dto.heightStratumMin,
-                height_stratum_max: dto.heightStratumMax,
-                unit_id: UNIT_METROS_ID,
-                cycle_number: zone.cycle_number,
+            if (inZone) throw new ConflictException('SPECIES_EXISTS_IN_ZONE');
+        } else {
+            const created = this.speciesRepo.create({
+                species_name: dto.speciesName,
+                functional_type_id: dto.functionalTypeId,
+                species_image_url: dto.speciesImageUrl ?? null,
             });
-            const savedLink = await this.speciesZoneRepo.save(link);
-
-            const full = await this.speciesZoneRepo.findOne({
-                where: { species_zone_id: savedLink.species_zone_id },
-                relations: ['species', 'species.functionalType', 'unitMeasurement'],
-            });
-
-            return { status: HttpStatus.CREATED, data: this.toResponse(full!) };
+            const saved = await this.speciesRepo.save(created);
+            speciesId = saved.species_id;
         }
-
-        const created = this.speciesRepo.create({
-            species_name: dto.speciesName,
-            functional_type_id: dto.functionalTypeId,
-            species_image_url: dto.speciesImageUrl ?? null,
-        });
-        const savedSpecies = await this.speciesRepo.save(created);
 
         const link = this.speciesZoneRepo.create({
             study_zone_id: zoneId,
-            species_id: savedSpecies.species_id,
+            species_id: speciesId,
             individual_count: dto.individualCount,
             height_stratum_min: dto.heightStratumMin,
             height_stratum_max: dto.heightStratumMax,
-            unit_id: UNIT_METROS_ID,
+            unit_id: 1,
             cycle_number: zone.cycle_number,
         });
         const savedLink = await this.speciesZoneRepo.save(link);

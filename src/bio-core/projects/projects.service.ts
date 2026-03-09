@@ -6,13 +6,15 @@ import {
     UnprocessableEntityException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, Repository } from 'typeorm';
+import { DataSource, In, Repository } from 'typeorm';
 import * as bcrypt from 'bcrypt';
 
 import { SamplingPlot } from '../../common/entities/sampling-plot.entity';
 import { UnitMeasurement } from '../../common/entities/unit-measurement.entity';
 import { User } from '../../auth/entities/user.entity';
 import { StudyZone } from '../../common/entities/study-zone.entity';
+import { Species } from '../../common/entities/species.entity';
+import { SpeciesZone } from '../../common/entities/species-zone.entity';
 import { CreateProjectDto } from './dto/create-project.dto';
 import { UpdateProjectDto } from './dto/update-project.dto';
 import { UpdateProjectStatusDto, PlotStatus } from './dto/update-project-status.dto';
@@ -44,7 +46,7 @@ export class ProjectsService {
         private readonly zoneRepo: Repository<StudyZone>,
 
         private readonly dataSource: DataSource,
-    ) {}
+    ) { }
 
     private toResponse(plot: SamplingPlot): PlotResponseDto {
         return {
@@ -190,7 +192,42 @@ export class ProjectsService {
     }
 
     async remove(plotId: number, userId: number): Promise<void> {
-        await this.findPlotForUser(plotId, userId);
-        await this.plotRepo.delete({ sampling_plot_id: plotId });
+        const plot = await this.findPlotForUser(plotId, userId);
+
+        await this.dataSource.transaction(async (manager) => {
+            // 1. Obtener todas las zonas del proyecto
+            const zones = await manager.find(StudyZone, {
+                where: { sampling_plot_id: plotId },
+            });
+            const zoneIds = zones.map((z) => z.study_zone_id);
+
+            if (zoneIds.length > 0) {
+                // 2. Obtener especies únicas en estas zonas para limpieza posterior
+                const speciesZones = await manager
+                    .createQueryBuilder(SpeciesZone, 'sz')
+                    .where('sz.study_zone_id IN (:...zoneIds)', { zoneIds })
+                    .getMany();
+                const speciesIds = [...new Set(speciesZones.map((sz) => sz.species_id))];
+
+                // 3. Borrar registros de especies en las zonas (SpeciesZone)
+                await manager.delete(SpeciesZone, { study_zone_id: In(zoneIds) });
+
+                // 4. Borrar las zonas (StudyZone)
+                await manager.delete(StudyZone, { sampling_plot_id: plotId });
+
+                // 5. Limpieza de especies huérfanas
+                for (const sId of speciesIds) {
+                    const count = await manager.count(SpeciesZone, {
+                        where: { species_id: sId },
+                    });
+                    if (count === 0) {
+                        await manager.delete(Species, { species_id: sId });
+                    }
+                }
+            }
+
+            // 6. Borrar el proyecto (SamplingPlot)
+            await manager.delete(SamplingPlot, { sampling_plot_id: plotId });
+        });
     }
 }
