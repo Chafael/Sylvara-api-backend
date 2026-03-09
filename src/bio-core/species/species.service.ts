@@ -1,3 +1,5 @@
+// src/bio-core/species/species.service.ts
+
 import {
     HttpStatus,
     Injectable,
@@ -157,25 +159,24 @@ export class SpeciesService {
                 };
             }
 
-            return {
-                status: HttpStatus.OK,
-                data: {
-                    code: 'SPECIES_EXISTS_IN_CATALOG',
-                    message: 'Esta especie ya está registrada en otras zonas del proyecto. ¿Deseas usar sus datos existentes?',
-                    existingRecord: {
-                        speciesZoneId: null,
-                        speciesId: existing.species_id,
-                        speciesName: existing.species_name,
-                        speciesImageUrl: existing.species_image_url ?? null,
-                        functionalTypeId: existing.functional_type_id,
-                        functionalTypeName: existing.functionalType?.functional_type_name ?? null,
-                        individualCount: null,
-                        heightStratumMin: null,
-                        heightStratumMax: null,
-                        unitName: null,
-                    },
-                },
-            };
+            // Existe en catálogo pero NO en esta zona → crear el vínculo directamente
+            const link = this.speciesZoneRepo.create({
+                study_zone_id: zoneId,
+                species_id: existing.species_id,
+                individual_count: dto.individualCount,
+                height_stratum_min: dto.heightStratumMin,
+                height_stratum_max: dto.heightStratumMax,
+                unit_id: UNIT_METROS_ID,
+                cycle_number: zone.cycle_number,
+            });
+            const savedLink = await this.speciesZoneRepo.save(link);
+
+            const full = await this.speciesZoneRepo.findOne({
+                where: { species_zone_id: savedLink.species_zone_id },
+                relations: ['species', 'species.functionalType', 'unitMeasurement'],
+            });
+
+            return { status: HttpStatus.CREATED, data: this.toResponse(full!) };
         }
 
         const created = this.speciesRepo.create({
