@@ -1,5 +1,3 @@
-// src/bio-core/species/species.service.ts
-
 import {
     ConflictException,
     HttpStatus,
@@ -21,6 +19,7 @@ import { SpeciesZoneResponseDto } from './dto/species-response.dto';
 import { SpeciesCatalogItemDto } from './dto/catalog-item.dto';
 import { SpeciesDuplicateResponseDto } from './dto/species-duplicate-response.dto';
 import { PaginatedSpeciesDto } from './dto/paginated-species.dto';
+import { BiodiversityService } from '../biodiversity/biodiversity.service';
 
 export const UNIT_METROS_ID = 1;
 
@@ -40,7 +39,9 @@ export class SpeciesService {
         private readonly plotRepo: Repository<SamplingPlot>,
 
         private readonly dataSource: DataSource,
-    ) { }
+
+        private readonly biodiversityService: BiodiversityService,
+    ) {}
 
     private toResponse(sz: SpeciesZone): SpeciesZoneResponseDto {
         return {
@@ -163,6 +164,8 @@ export class SpeciesService {
             relations: ['species', 'species.functionalType', 'unitMeasurement'],
         });
 
+        await this.biodiversityService.recalculateForZone(zoneId);
+
         return { status: HttpStatus.CREATED, data: this.toResponse(full!) };
     }
 
@@ -185,6 +188,8 @@ export class SpeciesService {
             where: { species_id: sz.species_id },
         });
         if (remaining === 0) await this.speciesRepo.delete({ species_id: sz.species_id });
+
+        await this.biodiversityService.recalculateForZone(zoneId);
     }
 
     async update(
@@ -234,6 +239,8 @@ export class SpeciesService {
             where: { species_zone_id: speciesZoneId },
             relations: ['species', 'species.functionalType', 'unitMeasurement'],
         });
+
+        await this.biodiversityService.recalculateForZone(zoneId);
 
         return this.toResponse(full!);
     }

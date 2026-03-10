@@ -17,6 +17,7 @@ import {
     BiodiversityIndicesDto,
     BiodiversityCountsDto,
 } from './dto/zone-response.dto';
+import { BiodiversityService } from '../biodiversity/biodiversity.service';
 
 @Injectable()
 export class ZonesService {
@@ -29,6 +30,8 @@ export class ZonesService {
 
         @InjectRepository(SpeciesZone)
         private readonly speciesZoneRepository: Repository<SpeciesZone>,
+
+        private readonly biodiversityService: BiodiversityService,
     ) {}
 
     private computeIndices(speciesZones: SpeciesZone[]): { indices: BiodiversityIndicesDto; counts: BiodiversityCountsDto } {
@@ -138,7 +141,6 @@ export class ZonesService {
 
         const zonesResponses = await Promise.all(zones.map(z => this.toZoneResponse(z)));
 
-        // métricas globales agregando todas las especies del plot en el ciclo actual
         const allZoneIds = zones.map(z => z.study_zone_id);
         const allSpeciesZones = allZoneIds.length > 0
             ? await this.speciesZoneRepository
@@ -153,10 +155,7 @@ export class ZonesService {
         return {
             samplingPlotId: plotId,
             cycleNumber: plot.current_cycle_number,
-            globalMetrics: {
-                indices: globalIndices,
-                counts: globalCounts,
-            },
+            globalMetrics: { indices: globalIndices, counts: globalCounts },
             zones: zonesResponses,
         };
     }
@@ -184,6 +183,8 @@ export class ZonesService {
             where: { study_zone_id: saved.study_zone_id },
             relations: ['unitMeasurement'],
         });
+
+        await this.biodiversityService.recalculateForPlot(plotId, plot.current_cycle_number);
 
         return this.toZoneResponse(full!);
     }
@@ -218,11 +219,14 @@ export class ZonesService {
             relations: ['unitMeasurement'],
         });
 
+        await this.biodiversityService.recalculateForPlot(plotId, zone.cycle_number);
+
         return this.toZoneResponse(updated!);
     }
 
     async remove(zoneId: number, plotId: number, userId: number): Promise<void> {
-        await this.verifyZone(zoneId, plotId, userId);
+        const zone = await this.verifyZone(zoneId, plotId, userId);
         await this.zoneRepository.delete({ study_zone_id: zoneId });
+        await this.biodiversityService.recalculateForPlot(plotId, zone.cycle_number);
     }
 }

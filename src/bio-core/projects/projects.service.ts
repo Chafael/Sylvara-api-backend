@@ -1,12 +1,13 @@
 import {
-    ForbiddenException,
     Injectable,
     NotFoundException,
     UnauthorizedException,
     UnprocessableEntityException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import { InjectModel } from '@nestjs/mongoose';
 import { DataSource, In, Repository } from 'typeorm';
+import { Model } from 'mongoose';
 import * as bcrypt from 'bcrypt';
 
 import { SamplingPlot } from '../../common/entities/sampling-plot.entity';
@@ -19,6 +20,7 @@ import { CreateProjectDto } from './dto/create-project.dto';
 import { UpdateProjectDto } from './dto/update-project.dto';
 import { UpdateProjectStatusDto, PlotStatus } from './dto/update-project-status.dto';
 import { PlotResponseDto } from './dto/plot-response.dto';
+import { ActivityCycle } from './schemas/activity-cycle.schema';
 
 export interface CursorMeta {
     nextCursor: number | null;
@@ -45,8 +47,14 @@ export class ProjectsService {
         @InjectRepository(StudyZone)
         private readonly zoneRepo: Repository<StudyZone>,
 
+        @InjectRepository(SpeciesZone)
+        private readonly speciesZoneRepo: Repository<SpeciesZone>,
+
+        @InjectModel(ActivityCycle.name)
+        private readonly activityCycleModel: Model<ActivityCycle>,
+
         private readonly dataSource: DataSource,
-    ) { }
+    ) {}
 
     private toResponse(plot: SamplingPlot): PlotResponseDto {
         return {
@@ -73,6 +81,137 @@ export class ProjectsService {
         return plot;
     }
 
+    private computeIndices(speciesZones: SpeciesZone[]) {
+        const totalIndividuals = speciesZones.reduce((sum, sz) => sum + sz.individual_count, 0);
+        const speciesRichness = speciesZones.length;
+
+        const shannon = speciesZones.reduce((sum, sz) => {
+            const p = sz.individual_count / (totalIndividuals || 1);
+            return sum + (p > 0 ? -p * Math.log(p) : 0);
+        }, 0);
+
+        const simpson =
+            totalIndividuals > 1
+                ? 1 -
+                  speciesZones.reduce(
+                      (sum, sz) => sum + sz.individual_count * (sz.individual_count - 1),
+                      0,
+                  ) / (totalIndividuals * (totalIndividuals - 1))
+                : 0;
+
+        const margalef =
+            totalIndividuals > 1 ? (speciesRichness - 1) / Math.log(totalIndividuals) : 0;
+
+        const pielou = speciesRichness > 1 ? shannon / Math.log(speciesRichness) : 0;
+
+        return {
+            indices: { shannon, simpson, margalef, pielou },
+            counts: { species_richness: speciesRichness, total_individuals: totalIndividuals },
+        };
+    }
+
+    /**
+     * Construye el snapshot completo e inmutable del ciclo para activity_cycles.
+     * Solo se invoca cuando el proyecto pasa a inactive.
+     */
+    private async buildActivityCycleSnapshot(
+        plot: SamplingPlot,
+        endDate: Date,
+    ) {
+        const cycleNumber = plot.current_cycle_number;
+        const plotId = plot.sampling_plot_id;
+
+        const zones = await this.zoneRepo.find({
+            where: { sampling_plot_id: plotId, cycle_number: cycleNumber },
+        });
+
+        // acumular species summary global (agrupado por especie)
+        const speciesSummaryMap = new Map<
+            number,
+            {
+                species_name: string;
+                functional_type_name: string;
+                total_individuals_in_plot: number;
+                presence_in_zones: Set<string>;
+            }
+        >();
+
+        const zonesDetails = await Promise.all(
+            zones.map(async (zone) => {
+                const speciesZones = await this.speciesZoneRepo.find({
+                    where: { study_zone_id: zone.study_zone_id, cycle_number: cycleNumber },
+                    relations: ['species', 'species.functionalType', 'unitMeasurement'],
+                });
+
+                const { indices } = this.computeIndices(speciesZones);
+
+                for (const sz of speciesZones) {
+                    const entry = speciesSummaryMap.get(sz.species_id);
+                    if (entry) {
+                        entry.total_individuals_in_plot += sz.individual_count;
+                        entry.presence_in_zones.add(zone.name_study_zone);
+                    } else {
+                        speciesSummaryMap.set(sz.species_id, {
+                            species_name: sz.species?.species_name ?? '',
+                            functional_type_name: sz.species?.functionalType?.functional_type_name ?? '',
+                            total_individuals_in_plot: sz.individual_count,
+                            presence_in_zones: new Set([zone.name_study_zone]),
+                        });
+                    }
+                }
+
+                return {
+                    study_zone_id: zone.study_zone_id,
+                    name_study_zone: zone.name_study_zone,
+                    indices,
+                    speciesRecords: speciesZones.map((sz) => ({
+                        species_name: sz.species?.species_name ?? '',
+                        functional_type_name: sz.species?.functionalType?.functional_type_name ?? '',
+                        individual_count: sz.individual_count,
+                        height_stratum_min: Number(sz.height_stratum_min ?? 0),
+                        height_stratum_max: Number(sz.height_stratum_max ?? 0),
+                        unit_name: sz.unitMeasurement?.unit_name ?? '',
+                    })),
+                };
+            }),
+        );
+
+        // métricas globales
+        const allSpeciesZones =
+            zones.length > 0
+                ? await this.speciesZoneRepo
+                      .createQueryBuilder('sz')
+                      .where('sz.study_zone_id IN (:...ids)', {
+                          ids: zones.map((z) => z.study_zone_id),
+                      })
+                      .andWhere('sz.cycle_number = :cycle', { cycle: cycleNumber })
+                      .getMany()
+                : [];
+
+        const { indices: globalIndices, counts: globalCounts } =
+            this.computeIndices(allSpeciesZones);
+
+        const global_species_summary = Array.from(speciesSummaryMap.values()).map((s) => ({
+            species_name: s.species_name,
+            functional_type_name: s.functional_type_name,
+            total_individuals_in_plot: s.total_individuals_in_plot,
+            presence_in_zones: Array.from(s.presence_in_zones),
+        }));
+
+        return {
+            sampling_plot_id: plotId,
+            cycle_number: cycleNumber,
+            sampling_plot_status: 'inactive',
+            startDate: plot.start_date
+                ? new Date(plot.start_date).toISOString().slice(0, 10)
+                : '',
+            endDate: endDate.toISOString().slice(0, 10),
+            globalMetrics: { indices: globalIndices, counts: globalCounts },
+            global_species_summary,
+            zonesDetails,
+        };
+    }
+
     async findAll(
         userId: number,
         status?: string,
@@ -88,20 +227,16 @@ export class ProjectsService {
             .orderBy('p.sampling_plot_id', 'DESC')
             .take(take);
 
-        if (status) {
-            qb.andWhere('p.sampling_plot_status = :status', { status });
-        }
-
-        if (cursor) {
-            qb.andWhere('p.sampling_plot_id < :cursor', { cursor });
-        }
+        if (status) qb.andWhere('p.sampling_plot_status = :status', { status });
+        if (cursor) qb.andWhere('p.sampling_plot_id < :cursor', { cursor });
 
         const plots = await qb.getMany();
 
         return {
-            data: plots.map(p => this.toResponse(p)),
+            data: plots.map((p) => this.toResponse(p)),
             meta: {
-                nextCursor: plots.length === take ? plots[plots.length - 1].sampling_plot_id : null,
+                nextCursor:
+                    plots.length === take ? plots[plots.length - 1].sampling_plot_id : null,
                 limit: plots.length,
             },
         };
@@ -137,13 +272,16 @@ export class ProjectsService {
             ...(dto.startDate !== undefined && { start_date: new Date(dto.startDate) }),
         });
 
-        return this.findPlotForUser(plotId, userId).then(p => this.toResponse(p));
+        return this.findPlotForUser(plotId, userId).then((p) => this.toResponse(p));
     }
 
-    async updateStatus(plotId: number, userId: number, dto: UpdateProjectStatusDto): Promise<PlotResponseDto> {
+    async updateStatus(
+        plotId: number,
+        userId: number,
+        dto: UpdateProjectStatusDto,
+    ): Promise<PlotResponseDto> {
         const plot = await this.findPlotForUser(plotId, userId);
 
-        // verificar password del usuario
         const user = await this.userRepo.findOne({
             where: { user_id: userId },
             select: ['user_id', 'user_password'],
@@ -152,20 +290,23 @@ export class ProjectsService {
 
         const isValid = await bcrypt.compare(dto.password, user.user_password);
         if (!isValid) {
-            throw new UnauthorizedException('La contraseña ingresada para confirmar el cambio de estatus es incorrecta.');
+            throw new UnauthorizedException(
+                'La contraseña ingresada para confirmar el cambio de estatus es incorrecta.',
+            );
         }
 
-        // si se reactiva (inactive → active), validar áreas y avanzar ciclo
-        if (plot.sampling_plot_status === PlotStatus.INACTIVE && dto.samplingPlotStatus === PlotStatus.ACTIVE) {
-            const newCycle = plot.current_cycle_number + 1;
-
+        if (
+            plot.sampling_plot_status === PlotStatus.INACTIVE &&
+            dto.samplingPlotStatus === PlotStatus.ACTIVE
+        ) {
+            // reactivar: avanzar ciclo
             await this.plotRepo.update(plotId, {
                 sampling_plot_status: PlotStatus.ACTIVE,
-                current_cycle_number: newCycle,
+                current_cycle_number: plot.current_cycle_number + 1,
                 end_date: null,
             });
         } else if (dto.samplingPlotStatus === PlotStatus.INACTIVE) {
-            // al cerrar, validar que la suma de sub-áreas no exceda el área total
+            // validar sub-áreas antes de cerrar
             const zonesSum = await this.zoneRepo
                 .createQueryBuilder('z')
                 .select('SUM(z.sub_area)', 'total')
@@ -173,60 +314,57 @@ export class ProjectsService {
                 .andWhere('z.cycle_number = :cycle', { cycle: plot.current_cycle_number })
                 .getRawOne();
 
-            const sum = Number(zonesSum?.total ?? 0);
-            if (sum > Number(plot.total_area)) {
-                throw new UnprocessableEntityException('La sub-área ingresada excede el área total disponible de la parcela para el ciclo actual.');
+            if (Number(zonesSum?.total ?? 0) > Number(plot.total_area)) {
+                throw new UnprocessableEntityException(
+                    'La sub-área ingresada excede el área total disponible de la parcela para el ciclo actual.',
+                );
             }
+
+            const endDate = new Date();
 
             await this.plotRepo.update(plotId, {
                 sampling_plot_status: PlotStatus.INACTIVE,
-                end_date: new Date(),
+                end_date: endDate,
             });
+
+            // persistir snapshot inmutable del ciclo en MongoDB
+            const snapshot = await this.buildActivityCycleSnapshot(plot, endDate);
+            await this.activityCycleModel.create(snapshot);
         } else {
             await this.plotRepo.update(plotId, {
                 sampling_plot_status: dto.samplingPlotStatus,
             });
         }
 
-        return this.findPlotForUser(plotId, userId).then(p => this.toResponse(p));
+        return this.findPlotForUser(plotId, userId).then((p) => this.toResponse(p));
     }
 
     async remove(plotId: number, userId: number): Promise<void> {
-        const plot = await this.findPlotForUser(plotId, userId);
+        await this.findPlotForUser(plotId, userId);
 
         await this.dataSource.transaction(async (manager) => {
-            // 1. Obtener todas las zonas del proyecto
             const zones = await manager.find(StudyZone, {
                 where: { sampling_plot_id: plotId },
             });
             const zoneIds = zones.map((z) => z.study_zone_id);
 
             if (zoneIds.length > 0) {
-                // 2. Obtener especies únicas en estas zonas para limpieza posterior
                 const speciesZones = await manager
                     .createQueryBuilder(SpeciesZone, 'sz')
                     .where('sz.study_zone_id IN (:...zoneIds)', { zoneIds })
                     .getMany();
+
                 const speciesIds = [...new Set(speciesZones.map((sz) => sz.species_id))];
 
-                // 3. Borrar registros de especies en las zonas (SpeciesZone)
                 await manager.delete(SpeciesZone, { study_zone_id: In(zoneIds) });
-
-                // 4. Borrar las zonas (StudyZone)
                 await manager.delete(StudyZone, { sampling_plot_id: plotId });
 
-                // 5. Limpieza de especies huérfanas
                 for (const sId of speciesIds) {
-                    const count = await manager.count(SpeciesZone, {
-                        where: { species_id: sId },
-                    });
-                    if (count === 0) {
-                        await manager.delete(Species, { species_id: sId });
-                    }
+                    const count = await manager.count(SpeciesZone, { where: { species_id: sId } });
+                    if (count === 0) await manager.delete(Species, { species_id: sId });
                 }
             }
 
-            // 6. Borrar el proyecto (SamplingPlot)
             await manager.delete(SamplingPlot, { sampling_plot_id: plotId });
         });
     }
