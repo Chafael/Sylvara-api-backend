@@ -8,6 +8,9 @@ import { ExportModule } from './export/export.module';
 import { BenchmarkingModule } from './benchmarking/benchmarking.module';
 import { ProfileModule } from './profile/profile.module';
 import { DashboardModule } from './dashboard/dashboard.module';
+import { AppController } from './app.controller';
+import { AppService } from './app.service';
+import { HealthModule } from './health/health.module';
 
 @Module({
   imports: [
@@ -44,6 +47,9 @@ import { DashboardModule } from './dashboard/dashboard.module';
     BenchmarkingModule,
     ProfileModule,
     DashboardModule,
+    HealthModule,
   ],
+  controllers: [AppController],
+  providers: [AppService],
 })
 export class AppModule { }
