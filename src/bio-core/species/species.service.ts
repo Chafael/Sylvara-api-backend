@@ -20,8 +20,9 @@ import { SpeciesCatalogItemDto } from './dto/catalog-item.dto';
 import { SpeciesDuplicateResponseDto } from './dto/species-duplicate-response.dto';
 import { PaginatedSpeciesDto } from './dto/paginated-species.dto';
 import { BiodiversityService } from '../biodiversity/biodiversity.service';
+import { PROJECT_CONSTANTS } from '../../common/constants/project-constants';
 
-export const UNIT_METROS_ID = 1;
+// Redundante: Usamos PROJECT_CONSTANTS.DEFAULT_UNIT_ID
 
 @Injectable()
 export class SpeciesService {
@@ -154,7 +155,7 @@ export class SpeciesService {
             individual_count: dto.individualCount,
             height_stratum_min: dto.heightStratumMin,
             height_stratum_max: dto.heightStratumMax,
-            unit_id: 1,
+            unit_id: PROJECT_CONSTANTS.DEFAULT_UNIT_ID,
             cycle_number: zone.cycle_number,
         });
         const savedLink = await this.speciesZoneRepo.save(link);

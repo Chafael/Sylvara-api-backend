@@ -3,6 +3,7 @@ import { InjectConnection } from '@nestjs/mongoose';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { Connection } from 'mongoose';
 import { DataSource } from 'typeorm';
+import { PROJECT_CONSTANTS } from '../common/constants/project-constants';
 
 @Controller('health')
 export class HealthController {
@@ -14,7 +15,7 @@ export class HealthController {
     @Get()
     async check() {
         const postgresStatus = this.postgresConnection.isInitialized;
-        const mongoStatus = this.mongoConnection.readyState === 1; // 1 = connected
+        const mongoStatus = this.mongoConnection.readyState === PROJECT_CONSTANTS.MONGO_CONNECTED_STATE;
 
         return {
             status: postgresStatus && mongoStatus ? 'ok' : 'error',

@@ -1,6 +1,7 @@
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { AppModule } from './app.module';
+import { PROJECT_CONSTANTS } from './common/constants/project-constants';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
@@ -10,8 +11,9 @@ async function bootstrap() {
       transform: true,
     }),
   );
-  app.setGlobalPrefix('api/v1');
+  app.setGlobalPrefix(process.env.API_PREFIX ?? PROJECT_CONSTANTS.GLOBAL_API_PREFIX);
   app.enableCors();
-  await app.listen(process.env.PORT ?? 3000);
+  const port = process.env.PORT || PROJECT_CONSTANTS.DEFAULT_PORT;
+  await app.listen(port);
 }
 bootstrap();

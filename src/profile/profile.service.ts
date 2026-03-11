@@ -4,6 +4,7 @@ import {
     NotFoundException,
     UnauthorizedException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import * as bcrypt from 'bcrypt';
@@ -11,12 +12,14 @@ import { User } from '../auth/entities/user.entity';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { ProfileResponseDto } from './dto/profile-response.dto';
+import { PROJECT_CONSTANTS } from '../common/constants/project-constants';
 
 @Injectable()
 export class ProfileService {
     constructor(
         @InjectRepository(User)
         private readonly userRepository: Repository<User>,
+        private readonly configService: ConfigService,
     ) { }
 
     // convierte la entidad al DTO de respuesta
@@ -71,7 +74,10 @@ export class ProfileService {
         const isValid = await bcrypt.compare(dto.currentPassword, user.user_password);
         if (!isValid) throw new UnauthorizedException('La contraseña actual es incorrecta.');
 
-        const hashed = await bcrypt.hash(dto.newPassword, 10);
+        const saltRoundsStr = this.configService.get<string>('BCRYPT_SALT_ROUNDS') ?? 
+                             PROJECT_CONSTANTS.DEFAULT_BCRYPT_SALT_ROUNDS.toString();
+        const saltRounds = parseInt(saltRoundsStr, 10);
+        const hashed = await bcrypt.hash(dto.newPassword, saltRounds);
         await this.userRepository.update(userId, { user_password: hashed });
 
         return { message: 'Contraseña actualizada exitosamente.' };

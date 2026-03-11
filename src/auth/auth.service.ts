@@ -3,6 +3,7 @@ import {
     Injectable,
     UnauthorizedException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, EntityManager, Repository } from 'typeorm';
 import { JwtService } from '@nestjs/jwt';
@@ -13,6 +14,8 @@ import { RefreshToken } from './entities/refresh-token.entity';
 import { RegisterUserDto } from './dto/register-user.dto';
 import { LoginUserDto } from './dto/login-user.dto';
 import { AuthResponse, AuthUser, RefreshResponse } from './dto/auth-response.dto';
+import { UserRole } from '../common/enums/user-role.enum';
+import { PROJECT_CONSTANTS } from '../common/constants/project-constants';
 
 @Injectable()
 export class AuthService {
@@ -25,6 +28,7 @@ export class AuthService {
 
         private readonly jwtService: JwtService,
         private readonly dataSource: DataSource,
+        private readonly configService: ConfigService,
     ) { }
 
     // da formato al usuario para la respuesta
@@ -36,15 +40,22 @@ export class AuthService {
             userBirthday: user.user_birthday,
             userEmail: user.user_email,
             profilePictureUrl: user.profile_picture_url ?? null,
-            userRole: user.user_role ?? 'USER',
+            userRole: user.user_role ?? UserRole.USER,
         };
     }
 
     private signTokens(user: User) {
         const payload = { sub: user.user_id, email: user.user_email, role: user.user_role };
+        
+        const accessExpires = this.configService.get<string>('JWT_ACCESS_EXPIRES') ?? 
+                             PROJECT_CONSTANTS.JWT_ACCESS_EXPIRES_DEFAULT;
+        
+        const refreshExpires = this.configService.get<string>('JWT_REFRESH_EXPIRES') ?? 
+                              PROJECT_CONSTANTS.JWT_REFRESH_EXPIRES_DEFAULT;
+
         return {
-            accessToken: this.jwtService.sign(payload, { expiresIn: '7d' }),
-            refreshToken: this.jwtService.sign(payload, { expiresIn: '30d' }),
+            accessToken: this.jwtService.sign(payload, { expiresIn: accessExpires as any }),
+            refreshToken: this.jwtService.sign(payload, { expiresIn: refreshExpires as any }),
         };
     }
 
@@ -75,7 +86,10 @@ export class AuthService {
             throw new ConflictException('El correo electrónico ya está registrado.');
         }
 
-        const hashedPassword = await bcrypt.hash(dto.userPassword, 10);
+        const saltRoundsStr = this.configService.get<string>('BCRYPT_SALT_ROUNDS') ?? 
+                             PROJECT_CONSTANTS.DEFAULT_BCRYPT_SALT_ROUNDS.toString();
+        const saltRounds = parseInt(saltRoundsStr, 10);
+        const hashedPassword = await bcrypt.hash(dto.userPassword, saltRounds);
 
         // TRANSACCIÓN: crear usuario y guardar sesión (doble INSERT)
         return this.dataSource.transaction(async (manager) => {
