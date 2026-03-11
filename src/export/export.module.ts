@@ -7,6 +7,9 @@ import { ReportDataService } from './services/report-data.service';
 import { ExportController } from './export.controller';
 
 import { SamplingPlot } from '../common/entities/sampling-plot.entity';
+import { StudyZone } from '../common/entities/study-zone.entity';
+import { SpeciesZone } from '../common/entities/species-zone.entity';
+import { UnitMeasurement } from '../common/entities/unit-measurement.entity';
 import { User } from '../auth/entities/user.entity';
 import {
     BiodiversityHistory,
@@ -15,7 +18,13 @@ import {
 
 @Module({
     imports: [
-        TypeOrmModule.forFeature([SamplingPlot, User]),
+        TypeOrmModule.forFeature([
+            SamplingPlot,
+            StudyZone,
+            SpeciesZone,
+            UnitMeasurement,
+            User,
+        ]),
         MongooseModule.forFeature([
             { name: BiodiversityHistory.name, schema: BiodiversityHistorySchema },
         ]),
