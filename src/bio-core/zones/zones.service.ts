@@ -1,10 +1,8 @@
-import {
-    Injectable,
-    NotFoundException,
-    UnprocessableEntityException,
-} from '@nestjs/common';
+import { Injectable, NotFoundException, UnprocessableEntityException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import { InjectModel } from '@nestjs/mongoose';
 import { Repository } from 'typeorm';
+import { Model } from 'mongoose';
 
 import { StudyZone } from '../../common/entities/study-zone.entity';
 import { SamplingPlot } from '../../common/entities/sampling-plot.entity';
@@ -18,6 +16,7 @@ import {
     BiodiversityCountsDto,
 } from './dto/zone-response.dto';
 import { BiodiversityService } from '../biodiversity/biodiversity.service';
+import { BiodiversityCache } from '../projects/schemas/biodiversity-cache.schema';
 
 @Injectable()
 export class ZonesService {
@@ -30,6 +29,9 @@ export class ZonesService {
 
         @InjectRepository(SpeciesZone)
         private readonly speciesZoneRepository: Repository<SpeciesZone>,
+
+        @InjectModel(BiodiversityCache.name)
+        private readonly cacheModel: Model<BiodiversityCache>,
 
         private readonly biodiversityService: BiodiversityService,
     ) {}
@@ -132,6 +134,65 @@ export class ZonesService {
     async findAll(plotId: number, userId: number): Promise<ZonesResponseDto> {
         const plot = await this.verifyPlot(plotId, userId);
 
+        // 1. Intentar leer desde caché de MongoDB
+        const cached = await this.cacheModel.findOne({
+            sampling_plot_id: plotId,
+            cycle_number: plot.current_cycle_number,
+        }).lean();
+
+        if (cached) {
+            // Traer zonas de PG solo para subArea, unitId y unitName (datos que el caché no guarda)
+            const zones = await this.zoneRepository
+                .createQueryBuilder('z')
+                .leftJoinAndSelect('z.unitMeasurement', 'um')
+                .where('z.sampling_plot_id = :plotId', { plotId })
+                .andWhere('z.cycle_number = :cycle', { cycle: plot.current_cycle_number })
+                .getMany();
+
+            const zoneMap = new Map(zones.map(z => [z.study_zone_id, z]));
+
+            const zonesFromCache: ZoneResponseDto[] = cached.zonesDetails.map(detail => {
+                const pgZone = zoneMap.get(detail.study_zone_id);
+                return {
+                    studyZoneId: detail.study_zone_id,
+                    nameStudyZone: detail.name_study_zone,
+                    subArea: pgZone ? Number(pgZone.sub_area) : 0,
+                    unitId: pgZone?.unit_id ?? 0,
+                    unitName: pgZone?.unitMeasurement?.unit_name ?? '',
+                    cycleNumber: plot.current_cycle_number,
+                    indices: {
+                        shannon: detail.indices.shannon,
+                        simpson: detail.indices.simpson,
+                        margalef: detail.indices.margalef,
+                        pielou: detail.indices.pielou,
+                    },
+                    counts: {
+                        speciesRichness: detail.counts.species_richness,
+                        totalIndividuals: detail.counts.total_individuals,
+                    },
+                };
+            });
+
+            return {
+                samplingPlotId: plotId,
+                cycleNumber: plot.current_cycle_number,
+                globalMetrics: {
+                    indices: {
+                        shannon: cached.globalMetrics.indices.shannon,
+                        simpson: cached.globalMetrics.indices.simpson,
+                        margalef: cached.globalMetrics.indices.margalef,
+                        pielou: cached.globalMetrics.indices.pielou,
+                    },
+                    counts: {
+                        speciesRichness: cached.globalMetrics.counts.species_richness,
+                        totalIndividuals: cached.globalMetrics.counts.total_individuals,
+                    },
+                },
+                zones: zonesFromCache,
+            };
+        }
+
+        // 2. Fallback: cálculo en vivo si no hay caché aún (ciclo nuevo sin especies registradas)
         const zones = await this.zoneRepository
             .createQueryBuilder('z')
             .leftJoinAndSelect('z.unitMeasurement', 'um')
