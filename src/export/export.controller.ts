@@ -1,5 +1,6 @@
-import { Controller, Get, Param, ParseIntPipe, Req, UseGuards } from '@nestjs/common';
-import { Request } from 'express';
+// src/export/export.controller.ts
+
+import { Controller, Get, Param, ParseIntPipe, Request, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { ReportDataService } from './services/report-data.service';
 import { ReportDataResponseDto } from './dto/report-data-response.dto';
@@ -12,8 +13,8 @@ export class ExportController {
     @Get('report-data/:projectId')
     async getReportData(
         @Param('projectId', ParseIntPipe) projectId: number,
-        @Req() req: Request & { user: { userId: number } },
+        @Request() req: { user: { user_id: number } },   // jwt.strategy devuelve user_id (snake_case)
     ): Promise<ReportDataResponseDto> {
-        return this.reportDataService.getReportData(projectId, req.user.userId);
+        return this.reportDataService.getReportData(projectId, req.user.user_id);
     }
 }

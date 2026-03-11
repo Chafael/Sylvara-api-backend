@@ -1,3 +1,5 @@
+// src/export/services/report-data.service.ts
+
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { InjectModel } from '@nestjs/mongoose';
@@ -50,7 +52,13 @@ export class ReportDataService {
         });
         if (!plot) throw new NotFoundException('Parcela no encontrada.');
 
-        const user = await this.userRepo.findOne({ where: { user_id: userId } });
+        // FIX: user_password tiene select:false — se debe pedir explícitamente
+        // solo los campos necesarios para el reporte (sin password).
+        const user = await this.userRepo
+            .createQueryBuilder('u')
+            .select(['u.user_id', 'u.user_name', 'u.user_lastname', 'u.user_email'])
+            .where('u.user_id = :userId', { userId })
+            .getOne();
         if (!user) throw new NotFoundException('Usuario no encontrado.');
 
         // ── 2. Snapshot más reciente de MongoDB ────────────────────────────
@@ -63,7 +71,7 @@ export class ReportDataService {
             .lean()
             .exec();
 
-        // ── 3. Datos de zonas desde PostgreSQL (sub_area, unit) ────────────
+        // ── 3. Zonas desde PostgreSQL (sub_area + unit — datos que Mongo no guarda) ──
         const pgZones = await this.zoneRepo
             .createQueryBuilder('z')
             .leftJoinAndSelect('z.unitMeasurement', 'um')
@@ -73,7 +81,7 @@ export class ReportDataService {
 
         const pgZoneMap = new Map(pgZones.map(z => [z.study_zone_id, z]));
 
-        // ── 4. Si hay snapshot en Mongo, usarlo como fuente principal ───────
+        // ── 4. Construir zonesDetails y globalMetrics ──────────────────────
         let zonesDetails: ZoneBiodiversityDto[] = [];
         let globalMetrics: GlobalMetricsDto = {
             speciesRichness: 0,
@@ -94,9 +102,10 @@ export class ReportDataService {
                 },
             };
 
-            // Zonas desde MongoDB + enriquecidas con sub_area/unit de PG
+            // Zonas desde MongoDB enriquecidas con sub_area/unit de PG
             zonesDetails = (snapshot.zonesDetails ?? []).map((zone) => {
                 const pgZone = pgZoneMap.get(zone.study_zone_id);
+
                 const speciesRecords: SpeciesRecordDto[] = (zone.speciesRecords ?? []).map(
                     (sr) => ({
                         speciesName: sr.species_name,
@@ -108,16 +117,25 @@ export class ReportDataService {
                     }),
                 );
 
+                // FIX: BiodiversityHistory.ZoneHistory no tiene campo "counts".
+                // Se deriva directamente desde speciesRecords para no perder datos.
+                const speciesRichness = speciesRecords.length;
+                const totalIndividuals = speciesRecords.reduce(
+                    (sum, r) => sum + r.individualCount, 0,
+                );
+
+                // Si el snapshot tiene counts (ciclos futuros que los incluyan), se
+                // usan esos; si no, se usan los derivados de speciesRecords.
+                const zoneCounts = (zone as any).counts;
+
                 return {
                     zoneId: zone.study_zone_id,
                     zoneName: zone.name_study_zone,
                     subArea: pgZone ? Number(pgZone.sub_area) : 0,
                     unitName: pgZone?.unitMeasurement?.unit_name ?? '',
                     cycleNumber: plot.current_cycle_number,
-                    speciesRichness: (zone as any).counts?.species_richness ?? speciesRecords.length,
-                    totalIndividuals:
-                        (zone as any).counts?.total_individuals ??
-                        speciesRecords.reduce((s, r) => s + r.individualCount, 0),
+                    speciesRichness: zoneCounts?.species_richness ?? speciesRichness,
+                    totalIndividuals: zoneCounts?.total_individuals ?? totalIndividuals,
                     indices: {
                         shannon: zone.indices?.shannon ?? 0,
                         simpson: zone.indices?.simpson ?? 0,
@@ -128,7 +146,7 @@ export class ReportDataService {
                 };
             });
         } else {
-            // Fallback: construir desde PostgreSQL en vivo
+            // Fallback: construir todo desde PostgreSQL en vivo
             zonesDetails = await this.buildZonesFromPostgres(
                 pgZones,
                 plot.current_cycle_number,
