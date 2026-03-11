@@ -71,6 +71,55 @@ export class GoogleOAuthService {
         }
     }
 
+    /**
+     * Canjea el serverAuthCode recibido desde Flutter por access_token + refresh_token.
+     * Google solo entrega refresh_token la primera vez que el usuario autoriza, o cuando
+     * se usa prompt: 'consent'. Si el usuario ya autorizó antes, se fuerza con
+     * revokeToken + nuevo flujo desde Flutter.
+     */
+    async handleMobileCallback(serverAuthCode: string, userId: number): Promise<void> {
+        try {
+            const { tokens } = await this.oauth2Client.getToken(serverAuthCode);
+
+            if (!tokens.access_token) {
+                throw new InternalServerErrorException(
+                    'Google no devolvió un access_token válido.',
+                );
+            }
+
+            const expiresAt = new Date(tokens.expiry_date ?? Date.now() + 3600 * 1000);
+
+            let record = await this.googleTokenRepository.findOne({
+                where: { user_id: userId },
+            });
+
+            if (record) {
+                record.access_token = tokens.access_token;
+                record.expires_at = expiresAt;
+                record.scope = tokens.scope ?? this.BIGQUERY_SCOPE;
+                // Google solo devuelve refresh_token la primera vez o tras revocar.
+                // Solo se sobreescribe si viene uno nuevo para no perder el existente.
+                if (tokens.refresh_token) {
+                    record.refresh_token = tokens.refresh_token;
+                }
+            } else {
+                record = this.googleTokenRepository.create({
+                    user_id: userId,
+                    access_token: tokens.access_token,
+                    refresh_token: tokens.refresh_token ?? undefined,
+                    expires_at: expiresAt,
+                    scope: tokens.scope ?? this.BIGQUERY_SCOPE,
+                });
+            }
+
+            await this.googleTokenRepository.save(record);
+        } catch (error) {
+            throw new InternalServerErrorException(
+                `Error al vincular Google desde móvil: ${(error as Error).message}`,
+            );
+        }
+    }
+
     /** Obtiene un access_token válido para el usuario, renovando si es necesario */
     async getValidAccessToken(userId: number): Promise<string> {
         const record = await this.googleTokenRepository.findOne({

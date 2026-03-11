@@ -20,7 +20,6 @@ import { GoogleOAuthService } from 'src/benchmarking/services/google-oauth.servi
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { Req } from '@nestjs/common';
-import { GoogleToken } from 'src/benchmarking/entities/google-token.entity';
 
 @Controller('auth')
 export class AuthController {
@@ -67,7 +66,6 @@ export class AuthController {
             return;
         }
 
-        // decodificar el JWT manualmente para obtener el userId
         const payload = JSON.parse(
             Buffer.from(token.split('.')[1], 'base64').toString(),
         );
@@ -85,8 +83,6 @@ export class AuthController {
     ) {
         const userId = parseInt(state, 10);
         await this.googleOAuthService.handleCallback(code, userId);
-
-        // redirigir al frontend con éxito
         res.redirect('http://localhost:3001/benchmarking?google=connected');
     }
 
@@ -98,33 +94,26 @@ export class AuthController {
         return { connected };
     }
 
+    /**
+     * Recibe el serverAuthCode desde Flutter y lo canjea server-side
+     * por access_token + refresh_token.
+     *
+     * Flutter debe obtener el serverAuthCode así:
+     *   final GoogleSignIn _googleSignIn = GoogleSignIn(
+     *     scopes: ['https://www.googleapis.com/auth/bigquery'],
+     *     serverClientId: 'TU_WEB_CLIENT_ID',
+     *   );
+     *   final account = await _googleSignIn.signIn();
+     *   final serverAuthCode = account?.serverAuthCode;
+     */
     @Post('google/mobile')
     @UseGuards(JwtAuthGuard)
     async googleMobile(
-        @Body() body: { access_token: string; email: string },
+        @Body() body: { serverAuthCode: string },
         @Request() req: { user: { user_id: number } },
     ) {
         const userId = req.user.user_id;
-
-        const repo = this.dataSource.getRepository(GoogleToken);
-
-        const existing = await repo.findOne({ where: { user_id: userId } });
-
-        if (existing) {
-            existing.access_token = body.access_token;
-            existing.expires_at = new Date(Date.now() + 3600 * 1000);
-            existing.scope = 'https://www.googleapis.com/auth/bigquery';
-            await repo.save(existing);
-        } else {
-            const record = repo.create({
-                user_id: userId,
-                access_token: body.access_token,
-                expires_at: new Date(Date.now() + 3600 * 1000),
-                scope: 'https://www.googleapis.com/auth/bigquery',
-            });
-            await repo.save(record);
-        }
-
+        await this.googleOAuthService.handleMobileCallback(body.serverAuthCode, userId);
         return { message: 'Google vinculado desde móvil', connected: true };
     }
 }
