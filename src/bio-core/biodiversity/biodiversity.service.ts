@@ -71,15 +71,26 @@ export class BiodiversityService {
             zones.map(async (zone) => {
                 const speciesZones = await this.speciesZoneRepo.find({
                     where: { study_zone_id: zone.study_zone_id, cycle_number: cycleNumber },
+                    relations: ['species', 'species.functionalType', 'unitMeasurement'],
                 });
 
                 const { indices, counts } = this.computeIndices(speciesZones);
+
+                const speciesRecords = speciesZones.map((sz) => ({
+                    species_name: sz.species?.species_name ?? '',
+                    functional_type_name: sz.species?.functionalType?.functional_type_name ?? '',
+                    individual_count: sz.individual_count,
+                    height_stratum_min: Number(sz.height_stratum_min ?? 0),
+                    height_stratum_max: Number(sz.height_stratum_max ?? 0),
+                    unit_name: sz.unitMeasurement?.unit_name ?? '',
+                }));
 
                 return {
                     study_zone_id: zone.study_zone_id,
                     name_study_zone: zone.name_study_zone,
                     indices,
                     counts,
+                    speciesRecords,
                 };
             }),
         );
@@ -108,13 +119,17 @@ export class BiodiversityService {
         );
 
         // append: registro inmutable por timestamp para historial y PDFs
-        await this.historyModel.create({
-            timestamp: new Date(),
-            sampling_plot_id: plotId,
-            cycle_number: cycleNumber,
-            globalMetrics,
-            zonesDetails,
-        });
+        await this.historyModel.findOneAndUpdate(
+            { sampling_plot_id: plotId, cycle_number: cycleNumber },
+            {
+                $set: {
+                    timestamp: new Date(),
+                    globalMetrics,
+                    zonesDetails,
+                },
+            },
+            { upsert: true },
+        );
     }
 
     /**
