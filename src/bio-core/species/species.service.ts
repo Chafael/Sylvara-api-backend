@@ -139,8 +139,29 @@ export class SpeciesService {
             speciesId = existingInProject.species_id;
             const inZone = await this.speciesZoneRepo.findOne({
                 where: { species_id: speciesId, study_zone_id: zoneId },
+                relations: ['species', 'unitMeasurement'],
             });
-            if (inZone) throw new ConflictException('SPECIES_EXISTS_IN_ZONE');
+            if (inZone) {
+                return {
+                    status: HttpStatus.CONFLICT,
+                    data: {
+                        code: 'SPECIES_EXISTS_IN_ZONE',
+                        message: `La especie ya está registrada en esta zona.`,
+                        existingRecord: {
+                            speciesZoneId: inZone.species_zone_id,
+                            speciesId: inZone.species_id,
+                            speciesName: inZone.species?.species_name ?? '',
+                            speciesImageUrl: inZone.species?.species_image_url ?? null,
+                            functionalTypeId: inZone.species?.functional_type_id ?? null,
+                            functionalTypeName: null,
+                            individualCount: inZone.individual_count,
+                            heightStratumMin: inZone.height_stratum_min !== null ? Number(inZone.height_stratum_min) : null,
+                            heightStratumMax: inZone.height_stratum_max !== null ? Number(inZone.height_stratum_max) : null,
+                            unitName: inZone.unitMeasurement?.unit_name ?? null,
+                        },
+                    },
+                };
+            }
         } else {
             const created = this.speciesRepo.create({
                 species_name: dto.speciesName,
