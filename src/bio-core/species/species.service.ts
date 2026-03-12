@@ -125,15 +125,18 @@ export class SpeciesService {
 
         this.validateHeightStrata(dto.heightStratumMin, dto.heightStratumMax);
 
-        const existing = await this.speciesRepo
+        const existingInProject = await this.speciesRepo
             .createQueryBuilder('s')
+            .innerJoin('s.speciesZones', 'sz')
+            .innerJoin('sz.studyZone', 'z')
             .where('LOWER(s.species_name) = LOWER(:name)', { name: dto.speciesName })
+            .andWhere('z.sampling_plot_id = :plotId', { plotId })
             .getOne();
 
         let speciesId: number;
 
-        if (existing) {
-            speciesId = existing.species_id;
+        if (existingInProject) {
+            speciesId = existingInProject.species_id;
             const inZone = await this.speciesZoneRepo.findOne({
                 where: { species_id: speciesId, study_zone_id: zoneId },
             });
