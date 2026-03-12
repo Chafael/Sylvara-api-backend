@@ -11,6 +11,7 @@ import { DashboardModule } from './dashboard/dashboard.module';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { HealthModule } from './health/health.module';
+import { UserActivitiesModule } from './user-activities/user-activities.module';
 
 @Module({
   imports: [
@@ -48,6 +49,7 @@ import { HealthModule } from './health/health.module';
     ProfileModule,
     DashboardModule,
     HealthModule,
+    UserActivitiesModule,
   ],
   controllers: [AppController],
   providers: [AppService],
