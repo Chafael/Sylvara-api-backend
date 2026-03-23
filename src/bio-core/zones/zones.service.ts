@@ -175,6 +175,7 @@ export class ZonesService {
 
             return {
                 samplingPlotId: plotId,
+                unitId: plot.unit_id,
                 cycleNumber: plot.current_cycle_number,
                 globalMetrics: {
                     indices: {
@@ -215,6 +216,7 @@ export class ZonesService {
 
         return {
             samplingPlotId: plotId,
+            unitId: plot.unit_id,
             cycleNumber: plot.current_cycle_number,
             globalMetrics: { indices: globalIndices, counts: globalCounts },
             zones: zonesResponses,
