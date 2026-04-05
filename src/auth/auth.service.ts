@@ -77,7 +77,6 @@ export class AuthService {
 
         const hashedPassword = await bcrypt.hash(dto.userPassword, 10);
 
-        // TRANSACCIÓN: crear usuario y guardar sesión (doble INSERT)
         return this.dataSource.transaction(async (manager) => {
 
             const user = manager.create(User, {
@@ -91,7 +90,6 @@ export class AuthService {
             const saved = await manager.save(user);
             const { accessToken, refreshToken } = this.signTokens(saved);
 
-            // guarda la sesión del usuario
             await this.saveRefreshToken(saved.user_id, refreshToken, manager);
 
             return { accessToken, refreshToken, user: this.toAuthUser(saved) };

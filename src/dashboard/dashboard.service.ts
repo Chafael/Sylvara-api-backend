@@ -1,53 +1,61 @@
-import { Injectable } from '@nestjs/common';
-import { DataSource } from 'typeorm';
+import { Injectable, NotFoundException } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+import { User } from '../auth/entities/user.entity';
+import { SamplingPlot } from '../common/entities/sampling-plot.entity';
 import { DashboardResponseDto } from './dto/dashboard-response.dto';
 
 @Injectable()
 export class DashboardService {
-    constructor(private readonly dataSource: DataSource) { }
+    constructor(
+        @InjectRepository(User)
+        private readonly userRepo: Repository<User>,
+
+        @InjectRepository(SamplingPlot)
+        private readonly plotRepo: Repository<SamplingPlot>,
+    ) {}
 
     async getDashboard(userId: number): Promise<DashboardResponseDto> {
-        const rows = await this.dataSource.query<any[]>(
-            `SELECT u.user_name,
-                    u.profile_picture_url,
-                    vus.total_historical_plots,
-                    vus.current_month_plots,
-                    vlp.id AS plot_id,
-                    vlp.name AS plot_name,
-                    vlp.description,
-                    vlp.total_area,
-                    vlp.area_unit,
-                    vlp.status,
-                    vlp.start_date
-             FROM users u
-             JOIN view_user_summary vus ON u.user_id = vus.user_id
-             LEFT JOIN view_latest_plots vlp ON u.user_id = vlp.user_id
-             WHERE u.user_id = $1`,
-            [userId],
-        );
+        const user = await this.userRepo.findOne({ where: { user_id: userId } });
+        if (!user) throw new NotFoundException('Usuario no encontrado.');
 
-        const s = rows[0] ?? {};
+        const allPlots = await this.plotRepo.find({ where: { user_id: userId } });
+
+        const now = new Date();
+        const currentMonthPlots = allPlots.filter((p) => {
+            const created = new Date(p.start_date ?? 0);
+            return (
+                created.getFullYear() === now.getFullYear() &&
+                created.getMonth() === now.getMonth()
+            );
+        }).length;
+
+        const latestPlots = await this.plotRepo
+            .createQueryBuilder('p')
+            .leftJoinAndSelect('p.unitMeasurement', 'um')
+            .where('p.user_id = :userId', { userId })
+            .orderBy('p.sampling_plot_id', 'DESC')
+            .take(5)
+            .getMany();
 
         return {
             user: {
-                userName: s.user_name ?? '',
-                profilePictureUrl: s.profile_picture_url ?? null,
+                userName: user.user_name,
+                profilePictureUrl: user.profile_picture_url ?? null,
             },
             summary: {
-                totalHistoricalPlots: Number(s.total_historical_plots ?? 0),
-                currentMonthPlots: Number(s.current_month_plots ?? 0),
+                totalHistoricalPlots: allPlots.length,
+                currentMonthPlots,
             },
-            latestPlots: rows
-                .filter((r) => r.plot_id !== null)
-                .map((r) => ({
-                    id: r.plot_id,
-                    name: r.plot_name,
-                    description: r.description ?? null,
-                    totalArea: Number(r.total_area),
-                    areaUnit: r.area_unit,
-                    status: r.status,
-                    startDate: r.start_date ?? null,
-                })),
+            latestPlots: latestPlots.map((p) => ({
+                id: p.sampling_plot_id,
+                name: p.sampling_plot_name,
+                description: p.description ?? null,
+                totalArea: Number(p.total_area),
+                areaUnit: p.unitMeasurement?.unit_name ?? '',
+                status: p.sampling_plot_status,
+                startDate: p.start_date ?? null,
+            })),
         };
     }
 }
