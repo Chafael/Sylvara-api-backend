@@ -6,6 +6,8 @@ import {
     PrimaryGeneratedColumn,
 } from 'typeorm';
 import { FunctionalType } from './functional-type.entity';
+import { OneToMany } from 'typeorm';
+import { SpeciesZone } from './species-zone.entity';
 
 @Entity('species')
 export class Species {
@@ -24,4 +26,7 @@ export class Species {
     @ManyToOne(() => FunctionalType, { nullable: false })
     @JoinColumn({ name: 'functional_type_id' })
     functionalType: FunctionalType;
+
+    @OneToMany(() => SpeciesZone, (sz) => sz.species)
+    speciesZones: SpeciesZone
 }

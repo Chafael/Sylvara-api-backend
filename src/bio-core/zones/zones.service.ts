@@ -175,6 +175,7 @@ export class ZonesService {
 
             return {
                 samplingPlotId: plotId,
+                unitId: plot.unit_id,
                 cycleNumber: plot.current_cycle_number,
                 globalMetrics: {
                     indices: {
@@ -215,6 +216,7 @@ export class ZonesService {
 
         return {
             samplingPlotId: plotId,
+            unitId: plot.unit_id,
             cycleNumber: plot.current_cycle_number,
             globalMetrics: { indices: globalIndices, counts: globalCounts },
             zones: zonesResponses,
@@ -223,6 +225,12 @@ export class ZonesService {
 
     async create(plotId: number, userId: number, dto: CreateZoneDto): Promise<ZoneResponseDto> {
         const plot = await this.verifyPlot(plotId, userId);
+
+        if (dto.unitId !== plot.unit_id) {
+            throw new UnprocessableEntityException(
+                `La unidad de la zona debe coincidir con la unidad del proyecto (unitId: ${plot.unit_id}).`,
+            );
+        }
 
         await this.validateSubArea(
             plotId,
@@ -258,6 +266,12 @@ export class ZonesService {
     ): Promise<ZoneResponseDto> {
         const zone = await this.verifyZone(zoneId, plotId, userId);
         const plot = await this.verifyPlot(plotId, userId);
+
+        if (dto.unitId !== undefined && dto.unitId !== plot.unit_id) {
+            throw new UnprocessableEntityException(
+                `La unidad de la zona debe coincidir con la unidad del proyecto (unitId: ${plot.unit_id}).`,
+            );
+        }
 
         if (dto.subArea !== undefined) {
             await this.validateSubArea(

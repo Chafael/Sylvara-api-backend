@@ -28,6 +28,7 @@ export class GlobalMetricsDto {
 
 export class ZonesResponseDto {
     samplingPlotId: number;
+    unitId: number;       
     cycleNumber: number;
     globalMetrics: GlobalMetricsDto;
     zones: ZoneResponseDto[];

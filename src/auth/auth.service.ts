@@ -91,7 +91,6 @@ export class AuthService {
         const saltRounds = parseInt(saltRoundsStr, 10);
         const hashedPassword = await bcrypt.hash(dto.userPassword, saltRounds);
 
-        // TRANSACCIÓN: crear usuario y guardar sesión (doble INSERT)
         return this.dataSource.transaction(async (manager) => {
 
             const user = manager.create(User, {
@@ -105,7 +104,6 @@ export class AuthService {
             const saved = await manager.save(user);
             const { accessToken, refreshToken } = this.signTokens(saved);
 
-            // guarda la sesión del usuario
             await this.saveRefreshToken(saved.user_id, refreshToken, manager);
 
             return { accessToken, refreshToken, user: this.toAuthUser(saved) };

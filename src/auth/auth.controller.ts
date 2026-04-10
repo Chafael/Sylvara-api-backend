@@ -83,7 +83,7 @@ export class AuthController {
     ) {
         const userId = parseInt(state, 10);
         await this.googleOAuthService.handleCallback(code, userId);
-        res.redirect('http://localhost:3001/benchmarking?google=connected');
+        res.redirect('http://206.189.200.58/api/v1/health');
     }
 
     /** Verifica si el usuario tiene Google conectado */
