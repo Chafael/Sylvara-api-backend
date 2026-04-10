@@ -27,13 +27,13 @@ export class UserActivity {
      * Tipo de recurso afectado (opcional).
      * Valores: 'project' | 'zone' | 'species' | null
      */
-    @Prop({ default: null })
+    @Prop({ type: String, default: null })
     resource_type: string | null;
 
     /**
      * ID del recurso afectado como string (opcional).
      */
-    @Prop({ default: null })
+    @Prop({ type: String, default: null })
     resource_id: string | null;
 
     /**
