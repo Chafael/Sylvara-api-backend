@@ -11,6 +11,8 @@ import { User } from './entities/user.entity';
 import { RefreshToken } from './entities/refresh-token.entity';
 import { GoogleToken } from 'src/benchmarking/entities/google-token.entity';
 import { JwtStrategy } from './strategies/jwt.strategy';
+import { JwtTwoFactorStrategy } from './strategies/jwt-two-factor.strategy';
+import { MailModule } from '../mail/mail.module';
 
 @Module({
     imports: [
@@ -24,9 +26,10 @@ import { JwtStrategy } from './strategies/jwt.strategy';
                 signOptions: { expiresIn: '7d' },
             }),
         }),
+        MailModule,
     ],
     controllers: [AuthController],
-    providers: [AuthService, GoogleOAuthService, JwtStrategy],
+    providers: [AuthService, GoogleOAuthService, JwtStrategy, JwtTwoFactorStrategy],
     exports: [AuthService, JwtStrategy, PassportModule, JwtModule, GoogleOAuthService],
 })
-export class AuthModule { }
+export class AuthModule {}
