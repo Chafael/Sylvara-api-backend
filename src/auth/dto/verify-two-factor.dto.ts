@@ -4,5 +4,5 @@ export class VerifyTwoFactorDto {
     @IsString()
     @IsNotEmpty()
     @Length(6, 6)
-    code: string;
+    code!: string;
 }
