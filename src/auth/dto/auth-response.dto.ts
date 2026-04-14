@@ -6,6 +6,7 @@ export interface AuthUser {
     userEmail: string;
     profilePictureUrl: string | null;
     userRole: string;
+    twoFactorEnabled: boolean;
 }
 
 export interface AuthResponse {
@@ -17,4 +18,9 @@ export interface AuthResponse {
 export interface RefreshResponse {
     accessToken: string;
     refreshToken: string;
+}
+
+export interface TwoFactorPendingResponse {
+    requiresTwoFactor: true;
+    twoFactorToken: string;
 }

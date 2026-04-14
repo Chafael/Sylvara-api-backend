@@ -27,7 +27,15 @@ export class User {
     @Column({ type: 'varchar', length: 512, nullable: true, default: null })
     profile_picture_url: string | null;
 
-    // 'USER' o 'ADMIN'
     @Column({ default: 'USER' })
     user_role: string;
+
+    @Column({ default: false })
+    two_factor_enabled: boolean;
+
+    @Column({ type: 'varchar', length: 6, nullable: true, default: null, select: false })
+    two_factor_code: string | null;
+
+    @Column({ type: 'timestamp', nullable: true, default: null, select: false })
+    two_factor_expires_at: Date | null;
 }
