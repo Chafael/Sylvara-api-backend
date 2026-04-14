@@ -12,7 +12,8 @@ import { MailService } from './mail.service';
                 transport: {
                     host: config.get<string>('MAIL_HOST'),
                     port: config.get<number>('MAIL_PORT'),
-                    secure: config.get<boolean>('MAIL_SECURE'),
+                    secure: false,
+                    requireTLS: true,
                     auth: {
                         user: config.get<string>('MAIL_USER'),
                         pass: config.get<string>('MAIL_PASS'),
