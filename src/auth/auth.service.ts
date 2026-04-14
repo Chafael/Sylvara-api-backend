@@ -13,9 +13,16 @@ import { User } from './entities/user.entity';
 import { RefreshToken } from './entities/refresh-token.entity';
 import { RegisterUserDto } from './dto/register-user.dto';
 import { LoginUserDto } from './dto/login-user.dto';
-import { AuthResponse, AuthUser, RefreshResponse } from './dto/auth-response.dto';
+import {
+    AuthResponse,
+    AuthUser,
+    RefreshResponse,
+    TwoFactorPendingResponse,
+} from './dto/auth-response.dto';
+import { VerifyTwoFactorDto } from './dto/verify-two-factor.dto';
 import { UserRole } from '../common/enums/user-role.enum';
 import { PROJECT_CONSTANTS } from '../common/constants/project-constants';
+import { MailService } from '../mail/mail.service';
 
 @Injectable()
 export class AuthService {
@@ -29,9 +36,9 @@ export class AuthService {
         private readonly jwtService: JwtService,
         private readonly dataSource: DataSource,
         private readonly configService: ConfigService,
-    ) { }
+        private readonly mailService: MailService,
+    ) {}
 
-    // da formato al usuario para la respuesta
     private toAuthUser(user: User): AuthUser {
         return {
             userId: user.user_id,
@@ -41,17 +48,20 @@ export class AuthService {
             userEmail: user.user_email,
             profilePictureUrl: user.profile_picture_url ?? null,
             userRole: user.user_role ?? UserRole.USER,
+            twoFactorEnabled: user.two_factor_enabled ?? false,
         };
     }
 
     private signTokens(user: User) {
         const payload = { sub: user.user_id, email: user.user_email, role: user.user_role };
-        
-        const accessExpires = this.configService.get<string>('JWT_ACCESS_EXPIRES') ?? 
-                             PROJECT_CONSTANTS.JWT_ACCESS_EXPIRES_DEFAULT;
-        
-        const refreshExpires = this.configService.get<string>('JWT_REFRESH_EXPIRES') ?? 
-                              PROJECT_CONSTANTS.JWT_REFRESH_EXPIRES_DEFAULT;
+
+        const accessExpires =
+            this.configService.get<string>('JWT_ACCESS_EXPIRES') ??
+            PROJECT_CONSTANTS.JWT_ACCESS_EXPIRES_DEFAULT;
+
+        const refreshExpires =
+            this.configService.get<string>('JWT_REFRESH_EXPIRES') ??
+            PROJECT_CONSTANTS.JWT_REFRESH_EXPIRES_DEFAULT;
 
         return {
             accessToken: this.jwtService.sign(payload, { expiresIn: accessExpires as any }),
@@ -59,14 +69,24 @@ export class AuthService {
         };
     }
 
-    // guarda el refresh token con fecha de expiración
+    private signTwoFactorToken(user: User): string {
+        return this.jwtService.sign(
+            { sub: user.user_id, email: user.user_email, scope: '2fa_pending' },
+            { expiresIn: '10m' },
+        );
+    }
+
+    private generateCode(): string {
+        return Math.floor(100000 + Math.random() * 900000).toString();
+    }
+
     private async saveRefreshToken(
         userId: number,
         token: string,
         manager: EntityManager,
     ): Promise<void> {
         const expiresAt = new Date();
-        expiresAt.setDate(expiresAt.getDate() + 30); // 30 días
+        expiresAt.setDate(expiresAt.getDate() + 30);
 
         const record = manager.create(RefreshToken, {
             user_id: userId,
@@ -86,13 +106,13 @@ export class AuthService {
             throw new ConflictException('El correo electrónico ya está registrado.');
         }
 
-        const saltRoundsStr = this.configService.get<string>('BCRYPT_SALT_ROUNDS') ?? 
-                             PROJECT_CONSTANTS.DEFAULT_BCRYPT_SALT_ROUNDS.toString();
+        const saltRoundsStr =
+            this.configService.get<string>('BCRYPT_SALT_ROUNDS') ??
+            PROJECT_CONSTANTS.DEFAULT_BCRYPT_SALT_ROUNDS.toString();
         const saltRounds = parseInt(saltRoundsStr, 10);
         const hashedPassword = await bcrypt.hash(dto.userPassword, saltRounds);
 
         return this.dataSource.transaction(async (manager) => {
-
             const user = manager.create(User, {
                 user_name: dto.userName,
                 user_lastname: dto.userLastname,
@@ -110,25 +130,46 @@ export class AuthService {
         });
     }
 
-    async login(dto: LoginUserDto): Promise<AuthResponse> {
-        // se pide el password porque por defecto no se incluye
-            const user = await this.userRepository.findOne({
-                where: { user_email: dto.userEmail },
-                select: ['user_id', 'user_name', 'user_lastname', 'user_birthday', 'user_email', 'user_password', 'user_role', 'profile_picture_url'],
-            });
+    async login(dto: LoginUserDto): Promise<AuthResponse | TwoFactorPendingResponse> {
+        const user = await this.userRepository.findOne({
+            where: { user_email: dto.userEmail },
+            select: [
+                'user_id', 'user_name', 'user_lastname', 'user_birthday',
+                'user_email', 'user_password', 'user_role', 'profile_picture_url',
+                'two_factor_enabled', 'two_factor_code', 'two_factor_expires_at',
+            ],
+        });
 
         if (!user) {
-            throw new UnauthorizedException('El corrreo y/o la contraseño son incorrectas.');
+            throw new UnauthorizedException('El correo y/o la contraseña son incorrectos.');
         }
 
         const isValid = await bcrypt.compare(dto.userPassword, user.user_password);
         if (!isValid) {
-            throw new UnauthorizedException('El corrreo y/o la contraseño son incorrectas.');
+            throw new UnauthorizedException('El correo y/o la contraseña son incorrectos.');
         }
 
+        // Si 2FA está activo: enviar código y devolver token temporal
+        if (user.two_factor_enabled) {
+            const code = this.generateCode();
+            const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 min
+
+            await this.userRepository.update(user.user_id, {
+                two_factor_code: code,
+                two_factor_expires_at: expiresAt,
+            });
+
+            await this.mailService.sendTwoFactorCode(user.user_email, code);
+
+            return {
+                requiresTwoFactor: true,
+                twoFactorToken: this.signTwoFactorToken(user),
+            };
+        }
+
+        // Flujo normal sin 2FA
         const { accessToken, refreshToken } = this.signTokens(user);
 
-        // INSERT simple sin transacción: solo se guarda el refresh token
         const expiresAt = new Date();
         expiresAt.setDate(expiresAt.getDate() + 30);
 
@@ -142,6 +183,66 @@ export class AuthService {
         return { accessToken, refreshToken, user: this.toAuthUser(user) };
     }
 
+    async verifyTwoFactor(
+        userId: number,
+        dto: VerifyTwoFactorDto,
+    ): Promise<AuthResponse> {
+        const user = await this.userRepository.findOne({
+            where: { user_id: userId },
+            select: [
+                'user_id', 'user_name', 'user_lastname', 'user_birthday',
+                'user_email', 'user_role', 'profile_picture_url',
+                'two_factor_enabled', 'two_factor_code', 'two_factor_expires_at',
+            ],
+        });
+
+        if (!user) {
+            throw new UnauthorizedException('Usuario no encontrado.');
+        }
+
+        if (!user.two_factor_code || !user.two_factor_expires_at) {
+            throw new UnauthorizedException('No hay un código de verificación activo.');
+        }
+
+        if (new Date() > user.two_factor_expires_at) {
+            throw new UnauthorizedException('El código de verificación ha expirado.');
+        }
+
+        if (user.two_factor_code !== dto.code) {
+            throw new UnauthorizedException('El código de verificación es incorrecto.');
+        }
+
+        // Limpiar código usado
+        await this.userRepository.update(userId, {
+            two_factor_code: null,
+            two_factor_expires_at: null,
+        });
+
+        const { accessToken, refreshToken } = this.signTokens(user);
+
+        const expiresAt = new Date();
+        expiresAt.setDate(expiresAt.getDate() + 30);
+
+        const record = this.refreshTokenRepository.create({
+            user_id: userId,
+            token: refreshToken,
+            expires_at: expiresAt,
+        });
+        await this.refreshTokenRepository.save(record);
+
+        return { accessToken, refreshToken, user: this.toAuthUser(user) };
+    }
+
+    async toggleTwoFactor(userId: number, enabled: boolean): Promise<{ message: string; twoFactorEnabled: boolean }> {
+        await this.userRepository.update(userId, { two_factor_enabled: enabled });
+        return {
+            message: enabled
+                ? 'Autenticación de dos pasos activada.'
+                : 'Autenticación de dos pasos desactivada.',
+            twoFactorEnabled: enabled,
+        };
+    }
+
     async refresh(refreshToken: string): Promise<RefreshResponse> {
         let payload: { sub: number; email: string; role: string };
 
@@ -151,7 +252,6 @@ export class AuthService {
             throw new UnauthorizedException('La sesión ha expirado. Por favor, inicia sesión nuevamente.');
         }
 
-        // verifica que la sesión siga activa
         const tokenRecord = await this.refreshTokenRepository.findOne({
             where: { token: refreshToken, user_id: payload.sub },
         });
@@ -168,7 +268,6 @@ export class AuthService {
             throw new UnauthorizedException('La sesión ha expirado. Por favor, inicia sesión nuevamente.');
         }
 
-        // TRANSACCIÓN: borrar token viejo y crear nuevo (rotación atómica)
         const tokens = this.signTokens(user);
 
         await this.dataSource.transaction(async (manager) => {
@@ -177,7 +276,6 @@ export class AuthService {
         });
 
         return { accessToken: tokens.accessToken, refreshToken: tokens.refreshToken };
-
     }
 
     async logout(refreshToken: string): Promise<{ message: string }> {
@@ -189,7 +287,6 @@ export class AuthService {
             throw new UnauthorizedException('No autorizado. Debes iniciar sesión para realizar esta acción.');
         }
 
-        // cierra la sesión del usuario
         const result = await this.refreshTokenRepository.delete({
             token: refreshToken,
             user_id: payload.sub,

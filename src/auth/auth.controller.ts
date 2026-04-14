@@ -20,6 +20,9 @@ import { GoogleOAuthService } from 'src/benchmarking/services/google-oauth.servi
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { Req } from '@nestjs/common';
+import { VerifyTwoFactorDto } from './dto/verify-two-factor.dto';
+import { ToggleTwoFactorDto } from './dto/toggle-two-factor.dto';
+import { JwtTwoFactorGuard } from './guards/jwt-two-factor.guard';
 
 @Controller('auth')
 export class AuthController {
@@ -116,4 +119,24 @@ export class AuthController {
         await this.googleOAuthService.handleMobileCallback(body.serverAuthCode, userId);
         return { message: 'Google vinculado desde móvil', connected: true };
     }
+
+    @Post('2fa/verify')
+@HttpCode(HttpStatus.OK)
+@UseGuards(JwtTwoFactorGuard)
+verifyTwoFactor(
+    @Body() dto: VerifyTwoFactorDto,
+    @Request() req: { user: { user_id: number } },
+) {
+    return this.authService.verifyTwoFactor(req.user.user_id, dto);
+}
+
+@Post('2fa/toggle')
+@HttpCode(HttpStatus.OK)
+@UseGuards(JwtAuthGuard)
+toggleTwoFactor(
+    @Body() dto: ToggleTwoFactorDto,
+    @Request() req: { user: { user_id: number } },
+) {
+    return this.authService.toggleTwoFactor(req.user.user_id, dto.enabled);
+}
 }
