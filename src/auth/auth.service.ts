@@ -97,38 +97,48 @@ export class AuthService {
         await manager.save(record);
     }
 
-    async register(dto: RegisterUserDto): Promise<AuthResponse> {
-        const exists = await this.userRepository.findOne({
-            where: { user_email: dto.userEmail },
-        });
+async register(dto: RegisterUserDto): Promise<TwoFactorPendingResponse> {
+    const exists = await this.userRepository.findOne({
+        where: { user_email: dto.userEmail },
+    });
 
-        if (exists) {
-            throw new ConflictException('El correo electrónico ya está registrado.');
-        }
-
-        const saltRoundsStr =
-            this.configService.get<string>('BCRYPT_SALT_ROUNDS') ??
-            PROJECT_CONSTANTS.DEFAULT_BCRYPT_SALT_ROUNDS.toString();
-        const saltRounds = parseInt(saltRoundsStr, 10);
-        const hashedPassword = await bcrypt.hash(dto.userPassword, saltRounds);
-
-        return this.dataSource.transaction(async (manager) => {
-            const user = manager.create(User, {
-                user_name: dto.userName,
-                user_lastname: dto.userLastname,
-                user_birthday: new Date(dto.userBirthday),
-                user_email: dto.userEmail,
-                user_password: hashedPassword,
-            });
-
-            const saved = await manager.save(user);
-            const { accessToken, refreshToken } = this.signTokens(saved);
-
-            await this.saveRefreshToken(saved.user_id, refreshToken, manager);
-
-            return { accessToken, refreshToken, user: this.toAuthUser(saved) };
-        });
+    if (exists) {
+        throw new ConflictException('El correo electrónico ya está registrado.');
     }
+
+    const saltRoundsStr =
+        this.configService.get<string>('BCRYPT_SALT_ROUNDS') ??
+        PROJECT_CONSTANTS.DEFAULT_BCRYPT_SALT_ROUNDS.toString();
+    const saltRounds = parseInt(saltRoundsStr, 10);
+    const hashedPassword = await bcrypt.hash(dto.userPassword, saltRounds);
+
+    const saved = await this.dataSource.transaction(async (manager) => {
+        const user = manager.create(User, {
+            user_name: dto.userName,
+            user_lastname: dto.userLastname,
+            user_birthday: new Date(dto.userBirthday),
+            user_email: dto.userEmail,
+            user_password: hashedPassword,
+            two_factor_enabled: true,
+        });
+        return manager.save(user);
+    });
+
+    const code = this.generateCode();
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
+
+    await this.userRepository.update(saved.user_id, {
+        two_factor_code: code,
+        two_factor_expires_at: expiresAt,
+    });
+
+    await this.mailService.sendTwoFactorCode(saved.user_email, code);
+
+    return {
+        requiresTwoFactor: true,
+        twoFactorToken: this.signTwoFactorToken(saved),
+    };
+}
 
     async login(dto: LoginUserDto): Promise<AuthResponse | TwoFactorPendingResponse> {
         const user = await this.userRepository.findOne({
