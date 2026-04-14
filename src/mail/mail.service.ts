@@ -1,12 +1,20 @@
 import { Injectable } from '@nestjs/common';
-import { MailerService } from '@nestjs-modules/mailer';
+import { ConfigService } from '@nestjs/config';
+import { Resend } from 'resend';
 
 @Injectable()
 export class MailService {
-    constructor(private readonly mailerService: MailerService) {}
+    private readonly resend: Resend;
+    private readonly fromEmail: string;
+
+    constructor(private readonly configService: ConfigService) {
+        this.resend = new Resend(configService.get<string>('RESEND_API_KEY'));
+        this.fromEmail = configService.get<string>('MAIL_FROM') ?? 'noreply@sylvara.app';
+    }
 
     async sendTwoFactorCode(email: string, code: string): Promise<void> {
-        await this.mailerService.sendMail({
+        await this.resend.emails.send({
+            from: this.fromEmail,
             to: email,
             subject: 'Código de verificación — Sylvara',
             html: `
