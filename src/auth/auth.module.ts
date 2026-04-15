@@ -3,6 +3,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { JwtModule } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
 import { ConfigModule, ConfigService } from '@nestjs/config';
+import { MongooseModule } from '@nestjs/mongoose';
 
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
@@ -13,10 +14,17 @@ import { GoogleToken } from 'src/benchmarking/entities/google-token.entity';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { JwtTwoFactorStrategy } from './strategies/jwt-two-factor.strategy';
 import { MailModule } from '../mail/mail.module';
+import {
+    PendingRegistration,
+    PendingRegistrationSchema,
+} from './schemas/pending-registration.schema';
 
 @Module({
     imports: [
         TypeOrmModule.forFeature([User, RefreshToken, GoogleToken]),
+        MongooseModule.forFeature([
+            { name: PendingRegistration.name, schema: PendingRegistrationSchema },
+        ]),
         PassportModule.register({ defaultStrategy: 'jwt' }),
         JwtModule.registerAsync({
             imports: [ConfigModule],

@@ -5,7 +5,9 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
+import { InjectModel } from '@nestjs/mongoose';
 import { DataSource, EntityManager, Repository } from 'typeorm';
+import { Model } from 'mongoose';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 
@@ -23,6 +25,10 @@ import { VerifyTwoFactorDto } from './dto/verify-two-factor.dto';
 import { UserRole } from '../common/enums/user-role.enum';
 import { PROJECT_CONSTANTS } from '../common/constants/project-constants';
 import { MailService } from '../mail/mail.service';
+import {
+    PendingRegistration,
+    PendingRegistrationDocument,
+} from './schemas/pending-registration.schema';
 
 @Injectable()
 export class AuthService {
@@ -32,6 +38,9 @@ export class AuthService {
 
         @InjectRepository(RefreshToken)
         private readonly refreshTokenRepository: Repository<RefreshToken>,
+
+        @InjectModel(PendingRegistration.name)
+        private readonly pendingModel: Model<PendingRegistrationDocument>,
 
         private readonly jwtService: JwtService,
         private readonly dataSource: DataSource,
@@ -69,9 +78,9 @@ export class AuthService {
         };
     }
 
-    private signTwoFactorToken(user: User): string {
+    private signTwoFactorToken(identifier: string, scope: '2fa_pending' | '2fa_register'): string {
         return this.jwtService.sign(
-            { sub: user.user_id, email: user.user_email, scope: '2fa_pending' },
+            { sub: identifier, scope },
             { expiresIn: '10m' },
         );
     }
@@ -97,48 +106,46 @@ export class AuthService {
         await manager.save(record);
     }
 
-async register(dto: RegisterUserDto): Promise<TwoFactorPendingResponse> {
-    const exists = await this.userRepository.findOne({
-        where: { user_email: dto.userEmail },
-    });
-
-    if (exists) {
-        throw new ConflictException('El correo electrónico ya está registrado.');
-    }
-
-    const saltRoundsStr =
-        this.configService.get<string>('BCRYPT_SALT_ROUNDS') ??
-        PROJECT_CONSTANTS.DEFAULT_BCRYPT_SALT_ROUNDS.toString();
-    const saltRounds = parseInt(saltRoundsStr, 10);
-    const hashedPassword = await bcrypt.hash(dto.userPassword, saltRounds);
-
-    const saved = await this.dataSource.transaction(async (manager) => {
-        const user = manager.create(User, {
-            user_name: dto.userName,
-            user_lastname: dto.userLastname,
-            user_birthday: new Date(dto.userBirthday),
-            user_email: dto.userEmail,
-            user_password: hashedPassword,
-            two_factor_enabled: true,
+    async register(dto: RegisterUserDto): Promise<TwoFactorPendingResponse> {
+        // Verificar si ya existe en usuarios reales
+        const exists = await this.userRepository.findOne({
+            where: { user_email: dto.userEmail },
         });
-        return manager.save(user);
-    });
+        if (exists) {
+            throw new ConflictException('El correo electrónico ya está registrado.');
+        }
 
-    const code = this.generateCode();
-    const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
+        const saltRoundsStr =
+            this.configService.get<string>('BCRYPT_SALT_ROUNDS') ??
+            PROJECT_CONSTANTS.DEFAULT_BCRYPT_SALT_ROUNDS.toString();
+        const saltRounds = parseInt(saltRoundsStr, 10);
+        const hashedPassword = await bcrypt.hash(dto.userPassword, saltRounds);
 
-    await this.userRepository.update(saved.user_id, {
-        two_factor_code: code,
-        two_factor_expires_at: expiresAt,
-    });
+        const code = this.generateCode();
+        const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
 
-    await this.mailService.sendTwoFactorCode(saved.user_email, code);
+        // Upsert en MongoDB: si el correo ya tenía un registro pendiente, se sobreescribe
+        await this.pendingModel.findOneAndUpdate(
+            { userEmail: dto.userEmail },
+            {
+                userName: dto.userName,
+                userLastname: dto.userLastname,
+                userBirthday: dto.userBirthday,
+                userEmail: dto.userEmail,
+                hashedPassword,
+                code,
+                expiresAt,
+            },
+            { upsert: true, new: true },
+        );
 
-    return {
-        requiresTwoFactor: true,
-        twoFactorToken: this.signTwoFactorToken(saved),
-    };
-}
+        await this.mailService.sendTwoFactorCode(dto.userEmail, code);
+
+        return {
+            requiresTwoFactor: true,
+            twoFactorToken: this.signTwoFactorToken(dto.userEmail, '2fa_register'),
+        };
+    }
 
     async login(dto: LoginUserDto): Promise<AuthResponse | TwoFactorPendingResponse> {
         const user = await this.userRepository.findOne({
@@ -159,10 +166,9 @@ async register(dto: RegisterUserDto): Promise<TwoFactorPendingResponse> {
             throw new UnauthorizedException('El correo y/o la contraseña son incorrectos.');
         }
 
-        // Si 2FA está activo: enviar código y devolver token temporal
         if (user.two_factor_enabled) {
             const code = this.generateCode();
-            const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 min
+            const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
 
             await this.userRepository.update(user.user_id, {
                 two_factor_code: code,
@@ -173,11 +179,10 @@ async register(dto: RegisterUserDto): Promise<TwoFactorPendingResponse> {
 
             return {
                 requiresTwoFactor: true,
-                twoFactorToken: this.signTwoFactorToken(user),
+                twoFactorToken: this.signTwoFactorToken(String(user.user_id), '2fa_pending'),
             };
         }
 
-        // Flujo normal sin 2FA
         const { accessToken, refreshToken } = this.signTokens(user);
 
         const expiresAt = new Date();
@@ -194,9 +199,60 @@ async register(dto: RegisterUserDto): Promise<TwoFactorPendingResponse> {
     }
 
     async verifyTwoFactor(
-        userId: number,
+        identifier: string,
         dto: VerifyTwoFactorDto,
+        scope: '2fa_pending' | '2fa_register',
     ): Promise<AuthResponse> {
+        if (scope === '2fa_register') {
+            // Registro: buscar en MongoDB y crear usuario en PostgreSQL
+            const pending = await this.pendingModel.findOne({ userEmail: identifier });
+
+            if (!pending) {
+                throw new UnauthorizedException('No hay un registro pendiente para este correo.');
+            }
+
+            if (new Date() > pending.expiresAt) {
+                await this.pendingModel.deleteOne({ userEmail: identifier });
+                throw new UnauthorizedException('El código de verificación ha expirado.');
+            }
+
+            if (pending.code !== dto.code) {
+                throw new UnauthorizedException('El código de verificación es incorrecto.');
+            }
+
+            // Crear usuario en PostgreSQL solo si el código es correcto
+            const saved = await this.dataSource.transaction(async (manager) => {
+                const user = manager.create(User, {
+                    user_name: pending.userName,
+                    user_lastname: pending.userLastname,
+                    user_birthday: new Date(pending.userBirthday),
+                    user_email: pending.userEmail,
+                    user_password: pending.hashedPassword,
+                    two_factor_enabled: true,
+                });
+                return manager.save(user);
+            });
+
+            // Limpiar registro pendiente
+            await this.pendingModel.deleteOne({ userEmail: identifier });
+
+            const { accessToken, refreshToken } = this.signTokens(saved);
+
+            const expiresAt = new Date();
+            expiresAt.setDate(expiresAt.getDate() + 30);
+
+            const record = this.refreshTokenRepository.create({
+                user_id: saved.user_id,
+                token: refreshToken,
+                expires_at: expiresAt,
+            });
+            await this.refreshTokenRepository.save(record);
+
+            return { accessToken, refreshToken, user: this.toAuthUser(saved) };
+        }
+
+        // Login: flujo original con código en PostgreSQL
+        const userId = parseInt(identifier, 10);
         const user = await this.userRepository.findOne({
             where: { user_id: userId },
             select: [
@@ -222,7 +278,6 @@ async register(dto: RegisterUserDto): Promise<TwoFactorPendingResponse> {
             throw new UnauthorizedException('El código de verificación es incorrecto.');
         }
 
-        // Limpiar código usado
         await this.userRepository.update(userId, {
             two_factor_code: null,
             two_factor_expires_at: null,

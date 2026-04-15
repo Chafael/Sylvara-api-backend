@@ -121,22 +121,22 @@ export class AuthController {
     }
 
     @Post('2fa/verify')
-@HttpCode(HttpStatus.OK)
-@UseGuards(JwtTwoFactorGuard)
-verifyTwoFactor(
-    @Body() dto: VerifyTwoFactorDto,
-    @Request() req: { user: { user_id: number } },
-) {
-    return this.authService.verifyTwoFactor(req.user.user_id, dto);
-}
+    @HttpCode(HttpStatus.OK)
+    @UseGuards(JwtTwoFactorGuard)
+    verifyTwoFactor(
+        @Body() dto: VerifyTwoFactorDto,
+        @Request() req: { user: { identifier: string; scope: '2fa_pending' | '2fa_register' } },
+    ) {
+        return this.authService.verifyTwoFactor(req.user.identifier, dto, req.user.scope);
+    }
 
-@Post('2fa/toggle')
-@HttpCode(HttpStatus.OK)
-@UseGuards(JwtAuthGuard)
-toggleTwoFactor(
-    @Body() dto: ToggleTwoFactorDto,
-    @Request() req: { user: { user_id: number } },
-) {
-    return this.authService.toggleTwoFactor(req.user.user_id, dto.enabled);
-}
+    @Post('2fa/toggle')
+    @HttpCode(HttpStatus.OK)
+    @UseGuards(JwtAuthGuard)
+    toggleTwoFactor(
+        @Body() dto: ToggleTwoFactorDto,
+        @Request() req: { user: { user_id: number } },
+    ) {
+        return this.authService.toggleTwoFactor(req.user.user_id, dto.enabled);
+    }
 }

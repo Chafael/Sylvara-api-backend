@@ -4,9 +4,8 @@ import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
 
 export interface TwoFactorPayload {
-    sub: number;
-    email: string;
-    scope: '2fa_pending';
+    sub: string;
+    scope: '2fa_pending' | '2fa_register';
 }
 
 @Injectable()
@@ -22,9 +21,9 @@ export class JwtTwoFactorStrategy extends PassportStrategy(Strategy, 'jwt-2fa') 
     }
 
     async validate(payload: TwoFactorPayload) {
-        if (payload.scope !== '2fa_pending') {
+        if (payload.scope !== '2fa_pending' && payload.scope !== '2fa_register') {
             throw new UnauthorizedException('Token inválido para este endpoint.');
         }
-        return { user_id: payload.sub, user_email: payload.email };
+        return { identifier: payload.sub, scope: payload.scope };
     }
 }
