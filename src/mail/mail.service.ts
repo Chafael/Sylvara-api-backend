@@ -1,31 +1,48 @@
-import { Injectable } from '@nestjs/common';
+// src/mail/mail.service.ts
+import { Injectable, InternalServerErrorException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { Resend } from 'resend';
+import * as nodemailer from 'nodemailer';
 
 @Injectable()
 export class MailService {
-    private readonly resend: Resend;
+    private readonly transporter: nodemailer.Transporter;
     private readonly fromEmail: string;
 
     constructor(private readonly configService: ConfigService) {
-        this.resend = new Resend(configService.get<string>('RESEND_API_KEY'));
-        this.fromEmail = configService.get<string>('MAIL_FROM') ?? 'noreply@sylvara.app';
+        this.transporter = nodemailer.createTransport({
+            host: this.configService.get<string>('MAIL_HOST'),
+            port: this.configService.get<number>('MAIL_PORT'),
+            secure: this.configService.get<string>('MAIL_SECURE') === 'true',
+            auth: {
+                user: this.configService.get<string>('MAIL_USER'),
+                pass: this.configService.get<string>('MAIL_PASS'),
+            },
+        });
+
+        this.fromEmail =
+            this.configService.get<string>('MAIL_USER') ?? 'noreply@sylvara.app';
     }
 
     async sendTwoFactorCode(email: string, code: string): Promise<void> {
-        await this.resend.emails.send({
-            from: this.fromEmail,
-            to: email,
-            subject: 'Código de verificación — Sylvara',
-            html: `
-                <div style="font-family: sans-serif; max-width: 480px; margin: auto;">
-                    <h2>Verificación en dos pasos</h2>
-                    <p>Tu código de verificación es:</p>
-                    <h1 style="letter-spacing: 8px; font-size: 40px; color: #2e7d32;">${code}</h1>
-                    <p>Este código expira en <strong>10 minutos</strong>.</p>
-                    <p>Si no intentaste iniciar sesión, ignora este mensaje.</p>
-                </div>
-            `,
-        });
+        try {
+            await this.transporter.sendMail({
+                from: this.fromEmail,
+                to: email,
+                subject: 'Código de verificación — Sylvara',
+                html: `
+                    <div style="font-family: sans-serif; max-width: 480px; margin: auto;">
+                        <h2>Verificación en dos pasos</h2>
+                        <p>Tu código de verificación es:</p>
+                        <h1 style="letter-spacing: 8px; font-size: 40px; color: #2e7d32;">${code}</h1>
+                        <p>Este código expira en <strong>10 minutos</strong>.</p>
+                        <p>Si no intentaste iniciar sesión, ignora este mensaje.</p>
+                    </div>
+                `,
+            });
+        } catch (error) {
+            throw new InternalServerErrorException(
+                `Error al enviar el correo de verificación: ${(error as Error).message}`,
+            );
+        }
     }
 }

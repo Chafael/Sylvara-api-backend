@@ -11,24 +11,24 @@ export class RegisterUserDto {
     @IsString()
     @IsNotEmpty()
     @MaxLength(100)
-    userName: string;
+    userName!: string;
 
     @IsString()
     @IsNotEmpty()
     @MaxLength(100)
-    userLastname: string;
+    userLastname!: string;
 
     @IsDateString()
     @IsNotEmpty()
-    userBirthday: string;
+    userBirthday!: string;
 
     @IsEmail()
     @IsNotEmpty()
     @MaxLength(255)
-    userEmail: string;
+    userEmail!: string;
 
     @IsString()
     @MinLength(8)
     @MaxLength(255)
-    userPassword: string;
+    userPassword!: string;
 }

@@ -7,17 +7,17 @@ import {
 @Entity('daily_query_metrics')
 export class DailyMetric {
     @PrimaryGeneratedColumn()
-    metric_id: number;
+    metric_id!: number;
 
     @Column({ nullable: false })
-    project_id: number;
+    project_id!: number;
 
     @Column({ type: 'date', nullable: false })
-    snapshot_date: string;
+    snapshot_date!: string;
 
     @Column({ type: 'integer', nullable: false })
-    calls: number;
+    calls!: number;
 
     @Column({ type: 'decimal', precision: 12, scale: 4, nullable: false })
-    mean_exec_time_ms: number;
+    mean_exec_time_ms!: number;
 }
