@@ -1,14 +1,17 @@
-import { IsNotEmpty, IsString, MaxLength, MinLength } from 'class-validator';
+import { IsNotEmpty, IsString, Matches, MaxLength, MinLength } from 'class-validator';
 
 export class ChangePasswordDto {
     @IsString()
     @IsNotEmpty()
     @MinLength(8)
     @MaxLength(255)
-    currentPassword: string;
+    currentPassword!: string;
 
     @IsString()
     @MinLength(8)
     @MaxLength(255)
-    newPassword: string;
+    @Matches(/^(?=.*[a-zA-Z])(?=.*\d)(?=.*[^a-zA-Z\d\s]).+$/, {
+        message: 'La contraseña debe ser alfanumérica y contener al menos un carácter especial.',
+    })
+    newPassword!: string;
 }

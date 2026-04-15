@@ -3,8 +3,9 @@ import {
     IsEmail,
     IsNotEmpty,
     IsString,
-    MinLength,
+    Matches,
     MaxLength,
+    MinLength,
 } from 'class-validator';
 
 export class RegisterUserDto {
@@ -30,5 +31,8 @@ export class RegisterUserDto {
     @IsString()
     @MinLength(8)
     @MaxLength(255)
+    @Matches(/^(?=.*[a-zA-Z])(?=.*\d)(?=.*[^a-zA-Z\d\s]).+$/, {
+        message: 'La contraseña debe ser alfanumérica y contener al menos un carácter especial.',
+    })
     userPassword!: string;
 }
